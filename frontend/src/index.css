@@ -1,0 +1,149 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --radius: 1rem;
+  --background: oklch(0.975 0.004 285);
+  --foreground: oklch(0.18 0.02 280);
+  --card: oklch(1 0 0 / 72%);
+  --card-foreground: oklch(0.18 0.02 280);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.18 0.02 280);
+  --primary: oklch(0.54 0.23 293); /* violet #7c3aed */
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.955 0.01 285);
+  --secondary-foreground: oklch(0.25 0.02 280);
+  --muted: oklch(0.955 0.01 285);
+  --muted-foreground: oklch(0.5 0.02 280);
+  --accent: oklch(0.94 0.02 290);
+  --accent-foreground: oklch(0.25 0.02 280);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.18 0.02 280 / 10%);
+  --input: oklch(0.18 0.02 280 / 12%);
+  --ring: oklch(0.54 0.23 293 / 50%);
+  /* chart series — dataviz-validated on #f6f7fb (CVD worst ΔE 49.3) */
+  --chart-1: #7c3aed;
+  --chart-2: #0891b2;
+  --chart-3: #2563eb;
+  --chart-4: #db2777;
+  /* mesh blob tints */
+  --mesh-1: oklch(0.54 0.23 293 / 18%);
+  --mesh-2: oklch(0.55 0.2 260 / 14%);
+  --mesh-3: oklch(0.6 0.2 340 / 10%);
+}
+
+.dark {
+  --background: oklch(0.155 0.015 285);
+  --foreground: oklch(0.96 0.005 285);
+  --card: oklch(1 0 0 / 4%);
+  --card-foreground: oklch(0.96 0.005 285);
+  --popover: oklch(0.21 0.02 285);
+  --popover-foreground: oklch(0.96 0.005 285);
+  --primary: oklch(0.61 0.22 293); /* violet #8b5cf6 */
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(1 0 0 / 7%);
+  --secondary-foreground: oklch(0.96 0.005 285);
+  --muted: oklch(1 0 0 / 7%);
+  --muted-foreground: oklch(0.68 0.01 285);
+  --accent: oklch(1 0 0 / 8%);
+  --accent-foreground: oklch(0.96 0.005 285);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 9%);
+  --input: oklch(1 0 0 / 12%);
+  --ring: oklch(0.61 0.22 293 / 55%);
+  /* chart series — dataviz-validated on #12121a (CVD worst ΔE 39.3) */
+  --chart-1: #8b5cf6;
+  --chart-2: #0891b2;
+  --chart-3: #3b82f6;
+  --chart-4: #ec4899;
+  --mesh-1: oklch(0.61 0.22 293 / 22%);
+  --mesh-2: oklch(0.55 0.2 260 / 18%);
+  --mesh-3: oklch(0.6 0.2 340 / 12%);
+}
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+    outline-color: var(--ring);
+  }
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    margin: 0;
+    font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+@layer components {
+  /* glassmorphism — সব shadcn Card এক নিয়মে glass হয় (bg translucent + blur) */
+  [data-slot='card'] {
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+  }
+
+  /* gradient headline text */
+  .text-gradient {
+    background: linear-gradient(120deg, var(--chart-1), var(--chart-3));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+}
+
+/* --- animated gradient mesh + particles (AnimatedBackground) --- */
+@keyframes mesh-drift-1 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(6vw, -4vh) scale(1.15); }
+  66% { transform: translate(-4vw, 5vh) scale(0.95); }
+}
+@keyframes mesh-drift-2 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  40% { transform: translate(-6vw, 4vh) scale(1.1); }
+  75% { transform: translate(4vw, -5vh) scale(0.9); }
+}
+@keyframes mesh-drift-3 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(5vw, 5vh) scale(1.2); }
+}
+@keyframes particle-float {
+  0%, 100% { transform: translateY(0); opacity: 0.2; }
+  50% { transform: translateY(-24px); opacity: 0.7; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mesh-blob, .particle {
+    animation: none !important;
+  }
+}

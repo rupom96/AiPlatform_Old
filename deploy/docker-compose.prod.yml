@@ -1,0 +1,111 @@
+# সার্ভারে যা লাগে: এই ফাইল + .env। কোনো source code, SDK, dotnet বা node নয়।
+#
+#   docker compose -f docker-compose.prod.yml pull
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# image তোমার মেশিনে তৈরি হয় (release.bat) আর GHCR-এ push হয় — তাই এখানে
+# `build:` নেই, শুধু `image:`। dev-এর ../docker-compose.yml অপরিবর্তিত আছে।
+
+services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: aiplatform-sqlserver
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "${SA_PASSWORD:?SA_PASSWORD .env-e set koro}"
+    volumes:
+      - sqlserver-data:/var/opt/mssql
+    # ⚠️ port publish করা হয়নি — DB শুধু compose network-এর ভেতরে।
+    # বাইরে থেকে SSMS দিয়ে দেখতে হলে সাময়িকভাবে `ports: ["1433:1433"]` যোগ করো।
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -C -Q 'SELECT 1' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: aiplatform-redis
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  qdrant:
+    image: qdrant/qdrant:v1.12.4
+    container_name: aiplatform-qdrant
+    volumes:
+      - qdrant-data:/qdrant/storage
+    restart: unless-stopped
+
+  # ponytail: এক replica। দুটো হলে দুজনেই startup-এ MigrateAsync() চালাত (Program.cs:169)
+  # — EF migration concurrent-safe নয়, race-এ ফাটতে পারে। HA দরকার হলে replica বাড়ানোর
+  # আগে migration আলাদা করে (init job) চালাতে হবে।
+  api:
+    image: ${REGISTRY}/aiplatform-api:${TAG:-latest}
+    container_name: aiplatform-api
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__Default: "Server=sqlserver,1433;Database=AiPlatform;User Id=sa;Password=${SA_PASSWORD};TrustServerCertificate=True;Encrypt=True"
+      ConnectionStrings__Erp: "Server=sqlserver,1433;Database=AiPlatformErp;User Id=sa;Password=${SA_PASSWORD};TrustServerCertificate=True;Encrypt=True"
+      Redis__Connection: "redis:6379"
+      Qdrant__Url: "http://qdrant:6333"
+      Jwt__SecretKey: "${JWT_SECRET:?JWT_SECRET .env-e set koro}"
+      Llm__Providers__gemini__ApiKey: "${GEMINI_API_KEY:-}"
+      Llm__Providers__groq__ApiKey: "${GROQ_API_KEY:-}"
+      # ⚠️ embedding আলাদা key পড়ে (LlmSettings.EmbeddingConfig.ApiKey) — provider-এর
+      # key দিয়ে চলে না। না দিলে ingest আর RAG দুটোই ফাটে, chat তবু চলে।
+      Llm__Embedding__ApiKey: "${GEMINI_API_KEY:-}"
+      Authentication__Google__ClientId: "${GOOGLE_CLIENT_ID:-}"
+      # একই origin (Caddy সব proxy করে) — তাই CORS আসলে লাগেই না, তবু মিলিয়ে রাখি
+      Cors__AllowedOrigins__0: "https://${PUBLIC_HOST:?PUBLIC_HOST .env-e set koro}"
+      Frontend__BaseUrl: "https://${PUBLIC_HOST}"
+      # ⚠️ true না দিলে AiPlatformErp database-ই তৈরি হয় না (Program.cs:174 — ERP migration
+      # এই flag-এর ভেতরে), তখন agent-এর get_sales/get_stock/get_warranty সব ফাটে।
+      Erp__SeedOnStartup: "true"
+      Otel__Enabled: "false"
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+    restart: unless-stopped
+
+  web:
+    image: ${REGISTRY}/aiplatform-web:${TAG:-latest}
+    container_name: aiplatform-web
+    restart: unless-stopped
+
+  # TLS + routing এক জায়গায়। Caddy নিজে Let's Encrypt সার্টিফিকেট নেয় ও নবায়ন করে।
+  # ⚠️ HTTPS বাধ্যতামূলক: refresh cookie-তে Secure=true (AuthController.cs:136), তাই
+  # plain HTTP-তে login হবে কিন্তু refresh-এ logout হয়ে যাবে।
+  caddy:
+    image: caddy:2-alpine
+    container_name: aiplatform-caddy
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      PUBLIC_HOST: "${PUBLIC_HOST}"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data      # সার্টিফিকেট — এটা না থাকলে প্রতি restart-এ নতুন cert চাইবে
+      - caddy-config:/config
+    depends_on:
+      - api
+      - web
+    restart: unless-stopped
+
+volumes:
+  sqlserver-data:
+  redis-data:
+  qdrant-data:
+  caddy-data:
+  caddy-config:

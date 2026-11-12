@@ -1,0 +1,65 @@
+name: CI
+
+# feature branch-এ push করলেই চলে — merge-এর আগেই খবর পাও (এই repo-তে কাজ হয় feature/** branch-এ,
+# তারপর main-এ merge)। PR ব্যবহার শুরু করলে `pull_request:` যোগ করো, কিন্তু তখন push trigger থেকে
+# feature/** বাদ দিও — নইলে এক কাজে দুবার run (দ্বিগুণ CI মিনিট)।
+on:
+  push:
+    branches: [main, 'feature/**']
+  workflow_dispatch:      # GitHub UI থেকে হাতে চালানোর বোতাম
+
+permissions:
+  contents: read      # CI-র কিছু লেখার দরকার নেই — token যত কম ক্ষমতার, তত ভালো
+
+# একই branch-এ দ্রুত পরপর push → পুরনো run বাতিল, শুধু শেষটার ফল দরকার
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # backend আর frontend একে অন্যের জন্য অপেক্ষা করে না — পাশাপাশি চলে
+  backend:
+    runs-on: ubuntu-latest      # Docker preinstalled → Testcontainers (SQL Server + Redis) এখানেই চলে
+    timeout-minutes: 15         # container ঝুলে গেলে যেন CI মিনিট গিলে না খায়
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      # NuGet package প্রতি run-এ নতুন করে নামানো বোকামি; csproj বদলালেই কেবল cache বাতিল
+      - uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ hashFiles('backend/**/*.csproj') }}
+          restore-keys: nuget-
+
+      - run: dotnet restore backend/AiPlatform.slnx
+
+      - run: dotnet build backend/AiPlatform.slnx --no-restore
+
+      # unit + integration একসাথে। integration test নিজেই SQL Server/Redis container তোলে,
+      # তাই CI-তে আলাদা service বা secret লাগে না (LLM key-ও নয় — টেস্ট provider ছোঁয় না)।
+      - run: dotnet test backend/AiPlatform.slnx --no-build --verbosity normal
+
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci          # package-lock হুবহু মানে — `npm install`-এর মতো version drift করে না
+
+      - run: npm run lint
+
+      - run: npm run build   # tsc -b + vite build → type error-ও এখানেই ধরা পড়ে

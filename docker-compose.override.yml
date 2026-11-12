@@ -1,0 +1,6 @@
+# Local-only: host MSSQLSERVER already owns 1433, so publish Docker SQL on 14333.
+# Not required on machines without a local SQL Server. Safe to delete.
+services:
+  sqlserver:
+    ports:
+      - "14333:1433"

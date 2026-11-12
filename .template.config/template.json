@@ -1,0 +1,51 @@
+{
+  "$schema": "http://json.schemastore.org/template",
+  "author": "Saiful",
+  "classifications": [ "Web", "AI", "Clean Architecture", "React", "Solution" ],
+  "identity": "AiPlatform.FullStack.Template",
+  "name": "AiPlatform — full-stack AI boilerplate (.NET 10 + React)",
+  "shortName": "aiplatform",
+  "description": "Production-grade AI platform starter: Clean Architecture backend (auth, multi-provider LLM, RAG/Qdrant, ingestion, multi-tenancy, OTel) + React/TS frontend. After `dotnet new`, follow docs/template-guide.md to strip demo content.",
+  "tags": { "language": "C#", "type": "solution" },
+
+  "sourceName": "AiPlatform",
+  "preferNameDirectory": true,
+
+  "symbols": {
+    "nameLower": {
+      "type": "derived",
+      "valueSource": "name",
+      "valueTransform": "lowerCaseForm",
+      "replaces": "aiplatform"
+    }
+  },
+  "forms": {
+    "lowerCaseForm": { "identifier": "lowerCase" }
+  },
+
+  "guids": [ "553d5adb-9d3a-4a49-98a4-d72b03a78c5f" ],
+
+  "sources": [
+    {
+      "modifiers": [
+        {
+          "exclude": [
+            "**/.git/**",
+            "**/node_modules/**",
+            "**/bin/**",
+            "**/obj/**",
+            "**/dist/**",
+            "**/.vite/**",
+            "**/test-results/**",
+            "**/playwright-report/**",
+            "**/.vs/**",
+            "**/.claude/**",
+            "**/.env",
+            "PLAN.md",
+            "TODO.md"
+          ]
+        }
+      ]
+    }
+  ]
+}

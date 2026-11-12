@@ -1,0 +1,42 @@
+# এক origin-এ সব — frontend root-এ, API /api-তে। ফলে CORS লাগে না আর
+# refresh cookie (SameSite=Strict) নির্বিঘ্নে কাজ করে।
+#
+# এখনকার সেটআপ: অফিসের ভেতরের নেটওয়ার্ক (সার্ভার NAT-এর পেছনে, 192.168.x.x)।
+# Let's Encrypt সার্ভারটাকে বাইরে থেকে যাচাই করতে পারে না, তাই Caddy নিজের CA
+# দিয়ে cert বানায় (tls internal)। প্রথমবার ব্রাউজারে warning আসবে — root cert
+# install করলে যাবে (docs/deploy-docker.md দেখো)।
+#
+# পরে পাবলিক domain + port-forward পেলে: tls internal লাইনটা মুছে দাও আর
+# PUBLIC_HOST-এ domain বসাও — Caddy নিজেই Let's Encrypt cert নিয়ে নেবে।
+
+https://{$PUBLIC_HOST} {
+	tls internal
+
+	encode zstd gzip
+
+	# backend-এর পথগুলো (Program.cs: MapControllers /api/v{n}, MapHealthChecks /health)
+	@api path /api/* /health
+	handle @api {
+		reverse_proxy api:8080
+	}
+
+	# বাকি সব frontend
+	handle {
+		reverse_proxy web:80
+	}
+
+	# ⚠️ MCP endpoint (/sse, /messages) ইচ্ছে করেই এখানে নেই — কোডে ওটা auth ছাড়া।
+	# Mcp:Enabled flag দিয়ে চালু করার পর route খুলো।
+
+	# ⚠️ Strict-Transport-Security ইচ্ছে করেই বাদ। self-signed cert + HSTS একসাথে
+	# হলে Chrome warning পাশ কাটানোর বাটনই দেয় না। Let's Encrypt-এ গেলে যোগ করো।
+	header {
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+}
+
+# http:// দিয়ে এলে Caddy নিজেই https-এ redirect করে (automatic HTTP->HTTPS) —
+# আলাদা ব্লক লাগে না।

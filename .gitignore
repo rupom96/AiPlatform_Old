@@ -1,0 +1,37 @@
+# .NET
+bin/
+obj/
+*.user
+.vs/
+
+# Secrets — কখনো commit না
+appsettings.*.Local.json
+.env
+*.env.local
+
+# Node / frontend (Phase 4)
+node_modules/
+dist/
+.vite/
+
+# Playwright (Phase 8e)
+test-results/
+playwright-report/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+
+# Deploy artifact (publish.bat / release.bat) — build output, git-এ নয়
+publish/
+
+# Deploy secret ও machine-state — কখনো commit না
+# (deploy/.env-এ SA_PASSWORD, JWT_SECRET, LLM key থাকে; .release-host শুধু শেষ hostname মনে রাখে)
+deploy/.env
+deploy/.release-host
+
+# publish.ps1 নিজে লেখে (VITE_API_BASE_URL build-time-এ bundle-এ যায়) — generated, commit নয়
+frontend/.env.production
+
+# বড় archive — repo ভারী করে
+*.rar
