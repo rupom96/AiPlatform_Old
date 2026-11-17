@@ -15,11 +15,7 @@ public class OpenAiCompatibleChatProvider(IHttpClientFactory httpClientFactory, 
 
     public async Task<ChatResult> CompleteAsync(IReadOnlyList<ChatMessage> messages, CancellationToken cancellationToken)
     {
-        var body = new
-        {
-            model = config.Model,
-            messages = messages.Select(m => new { role = m.Role, content = m.Content }).ToArray()
-        };
+        var body = NewBody(messages.Select(m => new { role = m.Role, content = m.Content }).ToArray());
 
         using var request = new HttpRequestMessage(HttpMethod.Post, config.BaseUrl);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", config.ApiKey);
@@ -32,12 +28,25 @@ public class OpenAiCompatibleChatProvider(IHttpClientFactory httpClientFactory, 
             throw new LlmProviderException(Name, (int)response.StatusCode, raw);
 
         using var doc = LlmJson.Parse(Name, raw, (int)response.StatusCode);
-        var text = doc.RootElement
+        var text =doc.RootElement
             .GetProperty("choices")[0].GetProperty("message")
             .GetProperty("content").GetString() ?? string.Empty;
 
         var (inputTokens, outputTokens) = ReadUsage(doc.RootElement);
         return new ChatResult(text, Name, config.Model, inputTokens, outputTokens);
+    }
+
+    // সব request-এর common অংশ। reasoning_effort config-এ থাকলেই কেবল যায় — না থাকলে body আগের মতোই।
+    private Dictionary<string, object?> NewBody(object messages)
+    {
+        var body = new Dictionary<string, object?>
+        {
+            ["model"] = config.Model,
+            ["messages"] = messages
+        };
+        if (!string.IsNullOrWhiteSpace(config.ReasoningEffort))
+            body["reasoning_effort"] = config.ReasoningEffort;
+        return body;
     }
 
     private static (int input, int output) ReadUsage(JsonElement root)
@@ -51,12 +60,8 @@ public class OpenAiCompatibleChatProvider(IHttpClientFactory httpClientFactory, 
 
     public async Task<string> CompleteJsonAsync(IReadOnlyList<ChatMessage> messages, CancellationToken cancellationToken)
     {
-        var body = new
-        {
-            model = config.Model,
-            response_format = new { type = "json_object" },   // JSON বাধ্যতামূলক
-            messages = messages.Select(m => new { role = m.Role, content = m.Content }).ToArray()
-        };
+        var body = NewBody(messages.Select(m => new { role = m.Role, content = m.Content }).ToArray());
+        body["response_format"] = new { type = "json_object" };   // JSON বাধ্যতামূলক
 
         using var request = new HttpRequestMessage(HttpMethod.Post, config.BaseUrl);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", config.ApiKey);
@@ -78,12 +83,8 @@ public class OpenAiCompatibleChatProvider(IHttpClientFactory httpClientFactory, 
         IReadOnlyList<ChatMessage> messages,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        var body = new
-        {
-            model = config.Model,
-            stream = true,
-            messages = messages.Select(m => new { role = m.Role, content = m.Content }).ToArray()
-        };
+        var body = NewBody(messages.Select(m => new { role = m.Role, content = m.Content }).ToArray());
+        body["stream"] = true;
 
         using var request = new HttpRequestMessage(HttpMethod.Post, config.BaseUrl);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", config.ApiKey);
@@ -118,17 +119,13 @@ public class OpenAiCompatibleChatProvider(IHttpClientFactory httpClientFactory, 
     public async Task<ChatToolResult> CompleteWithToolsAsync(
         IReadOnlyList<ChatMessage> messages, IReadOnlyList<ToolDefinition> tools, CancellationToken cancellationToken)
     {
-        var body = new
+        var body = NewBody(messages.Select(SerializeMessage).ToArray());
+        body["tool_choice"] = "auto";
+        body["tools"] = tools.Select(t => new
         {
-            model = config.Model,
-            tool_choice = "auto",
-            tools = tools.Select(t => new
-            {
-                type = "function",
-                function = new { name = t.Name, description = t.Description, parameters = t.ParametersSchema }
-            }).ToArray(),
-            messages = messages.Select(SerializeMessage).ToArray()
-        };
+            type = "function",
+            function = new { name = t.Name, description = t.Description, parameters = t.ParametersSchema }
+        }).ToArray();
 
         using var request = new HttpRequestMessage(HttpMethod.Post, config.BaseUrl);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", config.ApiKey);
