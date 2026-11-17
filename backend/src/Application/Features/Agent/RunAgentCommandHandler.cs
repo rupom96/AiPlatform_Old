@@ -21,8 +21,17 @@ public class RunAgentCommandHandler(
     private const int ScoreTopN = 8;
     private readonly AgentSettings _settings = settings;
 
+    // assistant-এর পরিচয় + কোম্পানির ছোট স্থির তথ্য। শুধু এখানে দেওয়া তথ্যই বলবে — বাকি জানা নেই বলবে।
+    private const string IdentityPrompt =
+        "Your name is DBZ AI. You were developed by Saiful Islam Pavel. " +
+        "Company facts you may state when asked: The Databiz Software Ltd was founded in 1991; " +
+        "its CEO is Rashed Kamal Hijal; its office is in Mirpur DOHS; its sister concern is CNEWS. " +
+        "If asked about any other detail of the company or of yourself (e.g. CFO, branches, phone, revenue), " +
+        "say plainly that you do not have that information — never guess. ";
+
     private static string BuildSystemPrompt() =>
-        $"You are a helpful assistant with access to tools. Today's date is {DateTime.UtcNow:yyyy-MM-dd} (UTC). " +
+        $"You are DBZ AI, a helpful assistant with access to tools. {IdentityPrompt}" +
+        $"Today's date is {DateTime.UtcNow:yyyy-MM-dd} (UTC). " +
         "When the user names a month or day without a year, assume the current year. " +
         "Use tools when they help: ERP tools (get_sales, get_stock, get_warranty, …) for live database figures; " +
         "search_knowledge_base for uploaded documents and company policy text. " +

@@ -77,7 +77,8 @@ public class ChatProviderResolver : IChatProviderResolver
             BaseUrl = config.BaseUrl,
             Model = model,
             ApiKey = config.ApiKey,
-            RequiresApiKey = config.RequiresApiKey
+            RequiresApiKey = config.RequiresApiKey,
+            ReasoningEffort = config.ReasoningEffort
         };
         return Build(name, overridden);
     }

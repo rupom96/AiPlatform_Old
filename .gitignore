@@ -35,3 +35,7 @@ frontend/.env.production
 
 # বড় archive — repo ভারী করে
 *.rar
+
+# Unsloth/Python generated caches (fine-tuning scripts) - not source
+unsloth_compiled_cache/
+__pycache__/
