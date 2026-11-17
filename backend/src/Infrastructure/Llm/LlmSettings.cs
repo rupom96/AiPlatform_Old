@@ -29,6 +29,10 @@ public class ProviderConfig
     // local provider (Ollama) key ছাড়াই চলে — false দিলে resolver key না থাকলেও skip করে না।
     // default true = hosted provider (key না থাকলে unusable, skip)।
     public bool RequiresApiKey { get; init; } = true;
+
+    // optional: "none" | "low" | "medium" | "high"। thinking-capable local model (gemma4, qwen3)
+    // default-এ "ভাবে" → ধীর। "none" দিলে thinking বন্ধ। null = request-এ পাঠানোই হয় না (hosted-এ অক্ষত)।
+    public string? ReasoningEffort { get; init; }
 }
 
 public class EmbeddingConfig
