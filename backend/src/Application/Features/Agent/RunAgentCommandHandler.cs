@@ -15,7 +15,8 @@ public class RunAgentCommandHandler(
     IToolCatalog toolCatalog,
     IAgentRetrievalTrace retrievalTrace,
     ILlmUsageRecorder usageRecorder,
-    AgentSettings settings)
+    AgentSettings settings,
+    MultiQuestionRunner multiQuestionRunner)
     : IRequestHandler<RunAgentCommand, Result<AgentResponse>>
 {
     private const int ScoreTopN = 8;
@@ -32,17 +33,21 @@ public class RunAgentCommandHandler(
     private static string BuildSystemPrompt() =>
         $"You are DBZ AI, a helpful assistant with access to tools. {IdentityPrompt}" +
         $"Today's date is {DateTime.UtcNow:yyyy-MM-dd} (UTC). " +
-        "When the user names a month or day without a year, assume the current year. " +
         "Use tools when they help: ERP tools (get_sales, get_stock, get_warranty, …) for live database figures; " +
         "search_knowledge_base for uploaded documents and company policy text. " +
         "You may call multiple tools in one turn (e.g. sales numbers + a policy doc) and combine them " +
         "into a single clear answer. " +
+        // ছোট model "জুলাই ২০২৬"-কে অস্পষ্ট ভেবে তারিখ জিজ্ঞেস করত (tool call-ই করত না) — তাই তারিখের নিয়ম স্পষ্ট ও জিজ্ঞাসার সীমা ছোট।
+        "Dates: when the user names a month (with or without a year) or a relative period, work out the exact dates " +
+        "yourself — a month means its first to last day, no year means the current year — and call the tool right away. " +
+        "Never ask the user to confirm or supply dates. " +
+        "Ask one short clarifying question only when two readings would need different tools or filters " +
+        "(for example customers versus products); otherwise pick the most likely reading and answer. " +
         "Never invent numbers — if a tool returns no data, say so plainly instead of reporting zero. " +
         "Copy every number, amount, date, serial and invoice number from the tool result exactly as given. " +
         "Never round, approximate, convert, re-scale or reformat them, and never do arithmetic of your own on them — " +
         "if an amount already carries its currency and separators, reproduce that string character for character. " +
-        "If the question is ambiguous in a way that changes which tool arguments you would use, " +
-        "ask the user one short clarifying question instead of guessing. " +
+        "Plain text only: no Markdown (no **, no backticks, no # headings); use '-' for list items. " +
         "When you have enough information, give the final answer in Bengali.";
 
     public async Task<Result<AgentResponse>> Handle(RunAgentCommand request, CancellationToken cancellationToken)
@@ -55,6 +60,14 @@ public class RunAgentCommandHandler(
             var requested = string.IsNullOrWhiteSpace(request.Provider) ? "default" : request.Provider;
             return Error.Validation("Agent.NoToolSupport",
                 $"Provider '{requested}' does not support tool-calling. Use an OpenAI-compatible provider (e.g. groq).");
+        }
+
+        // এক বার্তায় একাধিক প্রশ্ন → প্রতিটার আলাদা run (নিচের বাকি অংশ সবসময় ঠিক এক প্রশ্ন সামলায়)
+        if (!request.SkipSplit && _settings.SplitQuestions)
+        {
+            var split = QuestionSplitter.Split(request.Message, _settings.MaxQuestionsPerMessage);
+            if (split.Questions.Count > 1)
+                return await multiQuestionRunner.RunAsync(split, request, cancellationToken);
         }
 
         retrievalTrace.Clear();

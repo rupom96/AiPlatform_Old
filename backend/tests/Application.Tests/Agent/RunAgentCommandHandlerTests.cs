@@ -3,6 +3,8 @@ using AiPlatform.Application.Common.Models;
 using AiPlatform.Application.Common.Results;
 using AiPlatform.Application.Features.Agent;
 using AiPlatform.Infrastructure.Agent;
+using MediatR;
+using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
 
 namespace AiPlatform.Application.Tests.Agent;
@@ -15,9 +17,13 @@ public class RunAgentCommandHandlerTests
     private readonly IToolCatalog _catalog = PassthroughCatalog();
     private readonly IAgentRetrievalTrace _trace = EmptyTrace();
 
-    private RunAgentCommandHandler Handler(AgentSettings? settings = null) =>
-        new(_resolver, _tools, _catalog, _trace, _usage,
-            settings ?? new AgentSettings { Enabled = true, MaxIterations = 5 });
+    // বহু-প্রশ্ন ভাঙার পথ এই handler-এর অন্য কেউ (MultiQuestionRunnerTests) পরীক্ষা করে; এখানে runner নিষ্ক্রিয় scope-factory-র।
+    private RunAgentCommandHandler Handler(AgentSettings? settings = null)
+    {
+        var effective = settings ?? new AgentSettings { Enabled = true, MaxIterations = 5 };
+        return new(_resolver, _tools, _catalog, _trace, _usage, effective,
+            new MultiQuestionRunner(Substitute.For<IServiceScopeFactory>(), effective));
+    }
 
     private static IToolCatalog PassthroughCatalog()
     {
@@ -62,6 +68,72 @@ public class RunAgentCommandHandlerTests
         Assert.Equal("এখন সময় জানানো হলো।", result.Value.Answer);
         Assert.Contains("current_time", result.Value.ToolsUsed);
         await _catalog.Received().SyncAsync(Arg.Any<IReadOnlyCollection<ITool>>(), Arg.Any<CancellationToken>());
+    }
+
+    // এক বার্তায় একাধিক প্রশ্ন (দুই লাইন) → প্রতিটা আলাদা run; মূল handler নিজে LLM ডাকে না।
+    [Fact]
+    public async Task MultiLineMessage_IsSplit_AndEachQuestionRunsSeparately()
+    {
+        var provider = ToolProvider(out var tool);
+        _resolver.Resolve("groq", null).Returns(provider);
+
+        var inner = Substitute.For<IRequestHandler<RunAgentCommand, Result<AgentResponse>>>();
+        inner.Handle(Arg.Any<RunAgentCommand>(), Arg.Any<CancellationToken>())
+            .Returns(call => Task.FromResult<Result<AgentResponse>>(
+                new AgentResponse($"উত্তর: {call.Arg<RunAgentCommand>().Message}", [], 1)));
+        var handler = HandlerWithInner(inner, new AgentSettings { Enabled = true });
+
+        var result = await handler.Handle(
+            new RunAgentCommand("Who is Rashed Kamal?\nJuly 2026 er total sales koto?", "groq"), CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Contains("1. Who is Rashed Kamal?\nউত্তর: Who is Rashed Kamal?", result.Value.Answer);
+        Assert.Contains("2. July 2026 er total sales koto?\nউত্তর: July 2026 er total sales koto?", result.Value.Answer);
+        await inner.Received(2).Handle(Arg.Is<RunAgentCommand>(c => c.SkipSplit), Arg.Any<CancellationToken>());
+        await tool.DidNotReceive().CompleteWithToolsAsync(
+            Arg.Any<IReadOnlyList<ChatMessage>>(), Arg.Any<IReadOnlyList<ToolDefinition>>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SplitDisabled_RunsTheWholeMessageOnce()
+    {
+        var provider = ToolProvider(out var tool);
+        tool.CompleteWithToolsAsync(Arg.Any<IReadOnlyList<ChatMessage>>(), Arg.Any<IReadOnlyList<ToolDefinition>>(), Arg.Any<CancellationToken>())
+            .Returns(new ChatToolResult("এক উত্তর", [], "groq", "llama"));
+        _resolver.Resolve("groq", null).Returns(provider);
+        var inner = Substitute.For<IRequestHandler<RunAgentCommand, Result<AgentResponse>>>();
+        var handler = HandlerWithInner(inner, new AgentSettings { Enabled = true, SplitQuestions = false });
+
+        var result = await handler.Handle(new RunAgentCommand("এক?\nদুই?", "groq"), CancellationToken.None);
+
+        Assert.Equal("এক উত্তর", result.Value.Answer);
+        await inner.DidNotReceive().Handle(Arg.Any<RunAgentCommand>(), Arg.Any<CancellationToken>());
+    }
+
+    // ভাঙা প্রশ্ন (SkipSplit) আবার ভাঙে না — নইলে অনন্ত পুনরাবৃত্তি
+    [Fact]
+    public async Task SkipSplit_NeverSplitsAgain()
+    {
+        var provider = ToolProvider(out var tool);
+        tool.CompleteWithToolsAsync(Arg.Any<IReadOnlyList<ChatMessage>>(), Arg.Any<IReadOnlyList<ToolDefinition>>(), Arg.Any<CancellationToken>())
+            .Returns(new ChatToolResult("ঠিক", [], "groq", "llama"));
+        _resolver.Resolve("groq", null).Returns(provider);
+        var inner = Substitute.For<IRequestHandler<RunAgentCommand, Result<AgentResponse>>>();
+        var handler = HandlerWithInner(inner, new AgentSettings { Enabled = true });
+
+        var result = await handler.Handle(new RunAgentCommand("এক?\nদুই?", "groq", SkipSplit: true), CancellationToken.None);
+
+        Assert.Equal("ঠিক", result.Value.Answer);
+        await inner.DidNotReceive().Handle(Arg.Any<RunAgentCommand>(), Arg.Any<CancellationToken>());
+    }
+
+    private RunAgentCommandHandler HandlerWithInner(
+        IRequestHandler<RunAgentCommand, Result<AgentResponse>> inner, AgentSettings settings)
+    {
+        var services = new ServiceCollection();
+        services.AddScoped(_ => inner);
+        var scopeFactory = services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
+        return new(_resolver, _tools, _catalog, _trace, _usage, settings, new MultiQuestionRunner(scopeFactory, settings));
     }
 
     [Fact]
@@ -163,9 +235,10 @@ public class RunAgentCommandHandlerTests
             });
         _resolver.Resolve("groq", null).Returns(provider);
 
+        var settings = new AgentSettings { Enabled = true, MaxIterations = 5 };
         var handler = new RunAgentCommandHandler(
-            _resolver, [sales, stock], catalog, _trace, _usage,
-            new AgentSettings { Enabled = true, MaxIterations = 5 });
+            _resolver, [sales, stock], catalog, _trace, _usage, settings,
+            new MultiQuestionRunner(Substitute.For<IServiceScopeFactory>(), settings));
         var result = await handler.Handle(new RunAgentCommand("বিক্রি কত?", "groq"), CancellationToken.None);
 
         Assert.True(result.IsSuccess);
