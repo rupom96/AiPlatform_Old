@@ -3,7 +3,16 @@ import { Clock } from 'lucide-react'
 // উত্তরের নিচে সময় — কোন model কত ধীর তা প্রতি request-এ দেখার জন্য।
 // দুটো আলাদা সংখ্যা ইচ্ছাকৃত: total = ব্যবহারকারী যা অনুভব করে (network+queue সহ),
 // বাকিগুলো = backend-এর মাপা খাঁটি সময়। model তুলনায় দ্বিতীয়টাই নির্ভরযোগ্য।
-export function Timing({ totalMs, parts }: { totalMs: number; parts?: Record<string, number> }) {
+// source = কোন provider/model উত্তর দিল (যেমন "vllm · dbz-ai") — সময়ের পাশে, তুলনার সুবিধার জন্য।
+export function Timing({
+  totalMs,
+  parts,
+  source,
+}: {
+  totalMs: number
+  parts?: Record<string, number>
+  source?: string
+}) {
   const detail = Object.entries(parts ?? {})
     .filter(([, ms]) => ms > 0)
     .map(([label, ms]) => `${label} ${format(ms)}`)
@@ -14,6 +23,7 @@ export function Timing({ totalMs, parts }: { totalMs: number; parts?: Record<str
       <Clock className="size-3" />
       {format(totalMs)}
       {detail && <span>({detail})</span>}
+      {source && <span>· {source}</span>}
     </p>
   )
 }
