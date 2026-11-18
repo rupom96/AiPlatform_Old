@@ -2,6 +2,7 @@ import { useEffect, type ReactNode } from 'react'
 import { Loader2 } from 'lucide-react'
 import { useAppDispatch, useAppSelector } from '@/app/hooks'
 import { setBootstrapped, setCredentials, selectBootstrapped } from './authSlice'
+import { refreshAccessToken } from './refreshSession'
 
 // App load-এ একবার silent refresh (cookie দিয়ে) — valid session থাকলে auto login।
 // bootstrap শেষ না হওয়া পর্যন্ত loader (নাহলে flash হয়ে login দেখাবে)।
@@ -12,18 +13,10 @@ export function AppBootstrap({ children }: { children: ReactNode }) {
   useEffect(() => {
     let active = true
     void (async () => {
-      try {
-        const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/v1/auth/refresh`, {
-          method: 'POST',
-          credentials: 'include',
-        })
-        if (active && res.ok) {
-          const data = (await res.json()) as { accessToken: string }
-          dispatch(setCredentials({ accessToken: data.accessToken }))
-        }
-      } catch {
-        /* কোনো valid session নেই — unauthenticated */
-      }
+      // StrictMode-এ এই effect দুইবার চলে; refreshAccessToken দুই call-কে এক request-এ মিলিয়ে দেয়
+      // (দুটো আলাদা request গেলে দ্বিতীয়টা "reuse" ধরা পড়ে session বাতিল করত)।
+      const accessToken = await refreshAccessToken()
+      if (active && accessToken) dispatch(setCredentials({ accessToken }))
       if (active) dispatch(setBootstrapped())
     })()
     return () => {
