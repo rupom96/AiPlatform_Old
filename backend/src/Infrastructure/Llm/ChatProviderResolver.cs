@@ -78,6 +78,8 @@ public class ChatProviderResolver : IChatProviderResolver
             Model = model,
             ApiKey = config.ApiKey,
             RequiresApiKey = config.RequiresApiKey,
+            Engine = config.Engine,
+            Temperature = config.Temperature,
             ReasoningEffort = config.ReasoningEffort
         };
         return Build(name, overridden);

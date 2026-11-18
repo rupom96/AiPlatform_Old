@@ -40,6 +40,52 @@ public class OllamaModelCatalogTests
         factory.DidNotReceive().CreateClient(Arg.Any<string>());
     }
 
+    // vLLM: Engine = "vllm" হলে তালিকা আসে OpenAI-style GET /v1/models থেকে (data[].id), /api/tags থেকে নয়।
+    [Fact]
+    public async Task VllmEngine_ListsModelIds_FromV1Models()
+    {
+        var handler = new StubHandler(
+            """{"object":"list","data":[{"id":"dbz-ai","object":"model"},{"id":"other","object":"model"}]}""");
+        var catalog = BuildVllm(handler);
+
+        var models = await catalog.ListModelsAsync("vllm", CancellationToken.None);
+
+        Assert.Equal(["dbz-ai", "other"], models);
+        Assert.Equal("http://localhost:8000/v1/models", handler.RequestedUrls.Single());
+    }
+
+    [Fact]
+    public async Task VllmEngine_WhenServerDown_ReturnsEmpty()
+    {
+        var catalog = BuildVllm(new StubHandler(throwOnSend: true));
+
+        var models = await catalog.ListModelsAsync("vllm", CancellationToken.None);
+
+        Assert.Empty(models);
+    }
+
+    private static OllamaModelCatalog BuildVllm(StubHandler handler)
+    {
+        var factory = Substitute.For<IHttpClientFactory>();
+        factory.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient(handler));
+
+        var settings = new LlmSettings
+        {
+            Providers = new Dictionary<string, ProviderConfig>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["vllm"] = new ProviderConfig
+                {
+                    Engine = "vllm",
+                    BaseUrl = "http://localhost:8000/v1/chat/completions",
+                    Model = "dbz-ai",
+                    RequiresApiKey = false
+                }
+            }
+        };
+
+        return new OllamaModelCatalog(factory, Options.Create(settings), NullLogger<OllamaModelCatalog>.Instance);
+    }
+
     private static OllamaModelCatalog Build(IHttpClientFactory factory, ProviderConfig? ollama = null)
     {
         var settings = new LlmSettings
@@ -57,5 +103,23 @@ public class OllamaModelCatalogTests
 
         return new OllamaModelCatalog(
             factory, Options.Create(settings), NullLogger<OllamaModelCatalog>.Instance);
+    }
+
+    // নেটওয়ার্ক ছাড়া HTTP উত্তর বানানোর ছোট stub; কোন URL ডাকা হয়েছে তা মনে রাখে।
+    private sealed class StubHandler(string? json = null, bool throwOnSend = false) : HttpMessageHandler
+    {
+        public List<string> RequestedUrls { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            RequestedUrls.Add(request.RequestUri!.ToString());
+            if (throwOnSend)
+                throw new HttpRequestException("connection refused");
+
+            return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            {
+                Content = new StringContent(json ?? "{}", System.Text.Encoding.UTF8, "application/json")
+            });
+        }
     }
 }

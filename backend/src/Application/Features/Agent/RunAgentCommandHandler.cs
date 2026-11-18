@@ -98,7 +98,9 @@ public class RunAgentCommandHandler(
                     toolsUsed,
                     llmMs,
                     toolHits.Count > 0 ? toolHits : null,
-                    documentHits is { Count: > 0 } ? documentHits : null);
+                    documentHits is { Count: > 0 } ? documentHits : null,
+                    result.Provider,
+                    result.Model);
             }
 
             messages.Add(new ChatMessage("assistant", result.Content ?? string.Empty, ToolCalls: result.ToolCalls));
