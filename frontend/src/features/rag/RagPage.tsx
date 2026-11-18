@@ -24,6 +24,7 @@ import { useRagMutation } from './ragApi'
 // const METHODS = ['keyword', 'embedding', 'qdrant', 'hybrid']
 const METHODS = ['qdrant']
 import { PROVIDERS, isLocalEngine, effectiveProvider } from '@/lib/providers'
+import { toPlainText } from '@/lib/plainText'
 import { apiErrorMessage } from '@/lib/apiError'
 
 export function RagPage() {
@@ -129,7 +130,7 @@ export function RagPage() {
           <Card>
             <CardHeader><CardTitle className="text-base">উত্তর</CardTitle></CardHeader>
             <CardContent className="text-sm">
-              <div className="whitespace-pre-wrap">{data.answer}</div>
+              <div className="whitespace-pre-wrap">{toPlainText(data.answer)}</div>
               <Timing
                 totalMs={totalMs}
                 parts={{ retrieval: data.retrievalMs, generation: data.generationMs }}

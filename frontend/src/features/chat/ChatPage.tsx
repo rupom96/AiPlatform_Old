@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { TOOL_PROVIDERS, isLocalEngine, effectiveProvider } from '@/lib/providers'
 import { apiErrorMessage } from '@/lib/apiError'
+import { toPlainText } from '@/lib/plainText'
 import { useAppSelector } from '@/app/hooks'
 import { selectDefaultProvider } from '@/features/settings/uiSlice'
 import { DocumentUploadPanel } from '@/features/documents/DocumentUploadPanel'
@@ -238,7 +239,8 @@ export function ChatPage() {
                       : 'bg-muted text-foreground',
                   )}
                 >
-                  {msg.content || (busy && i === messages.length - 1 ? '…' : '')}
+                  {(msg.role === 'assistant' ? toPlainText(msg.content) : msg.content) ||
+                    (busy && i === messages.length - 1 ? '…' : '')}
                 </div>
 
                 {msg.toolsUsed && msg.toolsUsed.length > 0 && (
