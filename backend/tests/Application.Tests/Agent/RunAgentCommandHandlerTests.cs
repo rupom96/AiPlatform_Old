@@ -76,6 +76,9 @@ public class RunAgentCommandHandlerTests
 
         Assert.True(result.IsSuccess);
         Assert.Empty(result.Value.ToolsUsed);
+        // UI সময়ের পাশে দেখায় কোন provider/model আসলে উত্তর দিল (fallback হলে অনুরোধের নাম থেকে আলাদা হতে পারে)
+        Assert.Equal("groq", result.Value.Provider);
+        Assert.Equal("llama", result.Value.Model);
     }
 
     [Fact]

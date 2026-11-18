@@ -11,9 +11,12 @@ public record RunAgentCommand(string Message, string? Provider, string? Model = 
 
 // ToolsUsed = কোন tool কল হয়েছে। LatencyMs = সব LLM turn-এর যোগফল।
 // ToolHits = aiplatform_tools scores; DocumentHits = docs search scores (KB tool চললে)।
+// Provider/Model = শেষ LLM call আসলে যে provider ও model দিল (fallback chain-এ কে উত্তর দিল তা বোঝার জন্য)।
 public record AgentResponse(
     string Answer,
     IReadOnlyList<string> ToolsUsed,
     long LatencyMs = 0,
     IReadOnlyList<ScoredHit>? ToolHits = null,
-    IReadOnlyList<ScoredHit>? DocumentHits = null);
+    IReadOnlyList<ScoredHit>? DocumentHits = null,
+    string? Provider = null,
+    string? Model = null);

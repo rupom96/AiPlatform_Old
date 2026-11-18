@@ -1,0 +1,27 @@
+[
+  {
+    "id": "dbz-ai",
+    "label": "DBZ AI (আপনার fine-tune, Gemma 4 E2B)",
+    "name": "vllm-dbz",
+    "path": "E:\\finetune-outputs\\dbz-ai-v3-merged",
+    "servedName": "dbz-ai",
+    "note": "লোকাল ফোল্ডার, ডাউনলোড লাগে না"
+  },
+  {
+    "id": "gemma4-e2b",
+    "label": "Gemma 4 E2B (মূল model)",
+    "name": "vllm-e2b",
+    "hfModel": "unsloth/gemma-4-E2B-it",
+    "servedName": "gemma4-e2b",
+    "note": "প্রথমবার প্রায় ৯.৫ GB ডাউনলোড"
+  },
+  {
+    "id": "gemma4-e4b",
+    "label": "Gemma 4 E4B (fp8, পরীক্ষামূলক)",
+    "name": "vllm-e4b",
+    "hfModel": "unsloth/gemma-4-E4B-it",
+    "servedName": "gemma4-e4b",
+    "quantization": "fp8",
+    "note": "প্রথমবার প্রায় ১৪.৯ GB ডাউনলোড; ১৬ GB GPU-তে BF16 ঢোকে না তাই fp8, যা Gemma 4-এ যাচাই হয়নি"
+  }
+]
