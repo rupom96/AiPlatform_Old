@@ -271,6 +271,24 @@ Authorization: Bearer {{login.response.body.$.accessToken}}
 { "message": "রিটার্ন পলিসি কী? knowledge base দেখো।", "provider": "groq" }
 ### Expected: 200, toolsUsed: ["search_knowledge_base"], toolHits (tools collection top-8), documentHits (docs top-8) — KB passage + scores।
 
+### agent — এক বার্তায় একাধিক প্রশ্ন (প্রতি লাইন = এক প্রশ্ন; প্রতিটা আলাদা agent run, উত্তর ক্রমে)
+POST {{api}}/agent
+Content-Type: application/json
+Authorization: Bearer {{login.response.body.$.accessToken}}
+
+{ "message": "Who is Rashed Kamal?\nJuly 2026 er total sales koto? Buyer wise dekhao.\nজুন ২০২৬-এ সবচেয়ে বেশি বিক্রি হওয়া পণ্য কোনটি?", "provider": "ollama", "model": "gemma4:e4b" }
+### Expected: 200, answer = "1. <প্রশ্ন>\n<উত্তর>\n\n2. …\n\n3. …" (প্রশ্নের ক্রমে), toolsUsed: ["get_sales"] (distinct), provider/model শেষ call-এর।
+### একসাথে সর্বোচ্চ Agent:MaxQuestionsPerMessage (default 20)টি; বেশি হলে শেষে "বাকি Nটি আলাদা করে পাঠান" বার্তা। Agent:SplitQuestions=false হলে পুরো বার্তা এক run-এ।
+### একটা প্রশ্ন ব্যর্থ হলে শুধু ওর জায়গায় "(এই প্রশ্নের উত্তর আনা যায়নি: …)"; সব ব্যর্থ হলে প্রথম error।
+
+### agent — মাস-ভিত্তিক বিক্রি (get_sales-এর month=yyyy-MM; model-কে তারিখ বানাতে হয় না)
+POST {{api}}/agent
+Content-Type: application/json
+Authorization: Bearer {{login.response.body.$.accessToken}}
+
+{ "message": "জুলাই ২০২৬-এর মোট বিক্রি কত?", "provider": "ollama", "model": "gemma4:e2b" }
+### Expected: 200, toolsUsed: ["get_sales"] — model `{"month":"2026-07"}` পাঠায়, তারিখ জিজ্ঞেস করে না; উত্তরে markdown চিহ্ন (**) নেই।
+
 ### ============================================================
 ### ERP tool — get_sales (sample ERP DB, seed 2026-01 → 2026-07)
 ### ⚠️ Erp:SeedOnStartup=true থাকতে হবে। আসল সংখ্যা docs/erp-integration-plan.md-এ।

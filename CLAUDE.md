@@ -27,7 +27,9 @@
 - E2E: `cd frontend && npm run e2e` (Playwright; stack নিজে তোলে)
 - Frontend: `cd frontend && npm run dev` → http://localhost:5173
 - EF migration: `dotnet ef ... --project backend/src/Infrastructure --startup-project backend/src/Api`
-- সব একসাথে: `.\scripts\dev.ps1` (চালু) / `.\scripts\test.ps1 [-E2E]` (টেস্ট)
+- সব একসাথে: `.\scripts\dev.ps1` (Docker Desktop + backing services + Ollama নিজে তোলে, তারপর API ও frontend; `-Vllm <id>` সাথে vLLM, `-NoOllama`, `-NoApps`) / `.\scripts\test.ps1 [-E2E]` (টেস্ট)
+- সব বন্ধ: `.\scripts\dev-stop.ps1` (API/frontend → vLLM → Ollama → `docker compose stop`; ডেটা থাকে; আগে দেখতে `-DryRun`, `-QuitDocker`/`-KeepOllama`/`-KeepInfra`)
+- vLLM আলাদা চালাতে/বন্ধ করতে: `.\scripts\start-vllm.ps1` (মেনু; model তালিকা `scripts/vllm-models.json`)
 - সার্ভার bootstrap (Windows Server 2022 — Docker Desktop চলে না, তাই WSL2+Docker CE): `scripts/server-setup.ps1`
 - Deploy (সার্ভারে source ছাড়া, Docker): `release.bat` double-click → দুই image GHCR-এ push; সার্ভারে শুধু `deploy/` এর ৩টা ফাইল। **ধাপে ধাপে runbook: `docs/deploy-docker.md`** (DEV vs SERVER আলাদা করে লেখা, সব মান হুবহু)
 - Deploy artifact (IIS, Docker ছাড়া): `publish.bat` double-click (বা `.\scripts\publish.ps1 -ApiBaseUrl https://... [-NoPause]`) → `publish\api` (IIS-ready backend) + `publish\web` (frontend dist + SPA-fallback web.config)। ⚠️ `VITE_API_BASE_URL` build-time, তাই URL বদলালে আবার publish করতে হবে।

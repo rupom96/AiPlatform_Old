@@ -6,7 +6,8 @@ namespace AiPlatform.Application.Features.Agent;
 
 // tool-agent: LLM tool call করে, execute হয়, feed back — final answer পর্যন্ত। Provider tool-capable হতে হবে।
 // Model = ollama model-picker override (chat path-এর মতো)।
-public record RunAgentCommand(string Message, string? Provider, string? Model = null)
+// SkipSplit = true হলে বার্তা আর ভাঙা হয় না (বহু-প্রশ্ন ভেঙে চালানো এক-একটা প্রশ্ন, নইলে অনন্ত পুনরাবৃত্তি)।
+public record RunAgentCommand(string Message, string? Provider, string? Model = null, bool SkipSplit = false)
     : IRequest<Result<AgentResponse>>;
 
 // ToolsUsed = কোন tool কল হয়েছে। LatencyMs = সব LLM turn-এর যোগফল।
