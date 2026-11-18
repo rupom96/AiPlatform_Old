@@ -23,7 +23,8 @@ public class GetSalesTool(ErpDbContext db) : ITool
 
     // এই লেখাটাই LLM পড়ে সিদ্ধান্ত নেয় — কখন ডাকবে, কোন parameter ভরবে।
     public string Description =>
-        "Returns approved sales figures from the ERP database for a date range. " +
+        "Returns approved sales figures from the ERP database for one calendar month or any date range. " +
+        "For a whole month pass month=yyyy-MM (e.g. 2026-07); for any other period pass both fromDate and toDate. " +
         "Optional filters (customerName, productName, location) can be combined freely — " +
         "for example customerName plus productName answers 'how much of product Y did customer X buy'. " +
         "Use groupBy to break the total down, and topN to return only the highest-selling groups " +
@@ -38,8 +39,9 @@ public class GetSalesTool(ErpDbContext db) : ITool
         type = "object",
         properties = new
         {
-            fromDate = new { type = "string", description = "Start date, inclusive. Format yyyy-MM-dd, e.g. 2026-05-01." },
-            toDate = new { type = "string", description = "End date, inclusive. Format yyyy-MM-dd, e.g. 2026-05-31." },
+            month = new { type = "string", description = "A whole calendar month, format yyyy-MM, e.g. 2026-07. Use this when the user names a month; no date arithmetic needed." },
+            fromDate = new { type = "string", description = "Start date, inclusive. Format yyyy-MM-dd, e.g. 2026-05-01. Use with toDate for periods that are not a single month; takes precedence over month." },
+            toDate = new { type = "string", description = "End date, inclusive. Format yyyy-MM-dd, e.g. 2026-05-31. Use with fromDate." },
             customerName = new { type = "string", description = "Optional. Partial customer name; matches case-insensitively." },
             productName = new { type = "string", description = "Optional. Partial product name, e.g. 'Dell' or 'Mouse'." },
             location = new { type = "string", description = "Optional. Branch code or name, e.g. 'HO', 'CB', 'Chittagong'." },
@@ -50,15 +52,14 @@ public class GetSalesTool(ErpDbContext db) : ITool
                 description = "Optional. Break the total down by this dimension. Default 'none' returns one grand total."
             },
             topN = new { type = "integer", description = "Optional. Return only the top N groups by amount. Requires groupBy." }
-        },
-        required = new[] { "fromDate", "toDate" }
+        }
+        // কিছুই "required" নয়: month অথবা (fromDate + toDate) — কোনটা দিতে হবে তা ExecuteAsync যাচাই করে ও ভুল হলে error ফেরায়।
     };
 
     public async Task<string> ExecuteAsync(JsonElement arguments, CancellationToken cancellationToken)
     {
         // trust boundary — argument গুলো LLM-এর তৈরি, বিশ্বাস করা যায় না।
-        if (!TryReadDate(arguments, "fromDate", out var fromDate, out var error) ||
-            !TryReadDate(arguments, "toDate", out var toDate, out error))
+        if (!TryResolveRange(arguments, out var fromDate, out var toDate, out var error))
             return Error(error!);
 
         if (toDate < fromDate)
@@ -228,6 +229,39 @@ public class GetSalesTool(ErpDbContext db) : ITool
 
         return [.. totals.Select(t => new SalesRow(
             label(t.Key), countByKey.GetValueOrDefault(t.Key), t.Quantity, t.Amount))];
+    }
+
+    // fromDate/toDate দেওয়া থাকলে সেটাই চলে (month-কে ছাপিয়ে); নইলে month=yyyy-MM → মাসের প্রথম থেকে শেষ দিন।
+    // ছোট model-কে তারিখের অঙ্ক কষতে না দিয়ে "জুলাই ২০২৬" সরাসরি month হিসেবে নিতে দিই।
+    private static bool TryResolveRange(JsonElement arguments, out DateOnly fromDate, out DateOnly toDate, out string? error)
+    {
+        fromDate = default;
+        toDate = default;
+
+        var hasDates = !string.IsNullOrWhiteSpace(ReadString(arguments, "fromDate"))
+                       || !string.IsNullOrWhiteSpace(ReadString(arguments, "toDate"));
+        if (hasDates)
+            return TryReadDate(arguments, "fromDate", out fromDate, out error)
+                   && TryReadDate(arguments, "toDate", out toDate, out error);
+
+        var month = ReadString(arguments, "month");
+        if (string.IsNullOrWhiteSpace(month))
+        {
+            error = "Provide month (yyyy-MM) or both fromDate and toDate (yyyy-MM-dd).";
+            return false;
+        }
+
+        if (!DateOnly.TryParseExact($"{month.Trim()}-01", "yyyy-MM-dd",
+                System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var first))
+        {
+            error = $"month '{month}' is not valid. Use format yyyy-MM, e.g. 2026-07.";
+            return false;
+        }
+
+        fromDate = first;
+        toDate = new DateOnly(first.Year, first.Month, DateTime.DaysInMonth(first.Year, first.Month));
+        error = null;
+        return true;
     }
 
     private static bool TryReadDate(JsonElement arguments, string name, out DateOnly value, out string? error)
