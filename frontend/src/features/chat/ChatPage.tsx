@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import { Loader2, Plus, SendHorizontal } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
-import { TOOL_PROVIDERS, isOllama, effectiveProvider } from '@/lib/providers'
+import { TOOL_PROVIDERS, isLocalEngine, effectiveProvider } from '@/lib/providers'
 import { apiErrorMessage } from '@/lib/apiError'
+import { toPlainText } from '@/lib/plainText'
 import { useAppSelector } from '@/app/hooks'
 import { selectDefaultProvider } from '@/features/settings/uiSlice'
 import { DocumentUploadPanel } from '@/features/documents/DocumentUploadPanel'
@@ -28,6 +29,8 @@ interface Message {
   content: string
   totalMs?: number
   llmMs?: number
+  /** কোন provider ও model উত্তর দিল, যেমন "vllm · dbz-ai" */
+  source?: string
   toolsUsed?: string[]
   toolHits?: ScoredHit[]
   documentHits?: ScoredHit[]
@@ -48,7 +51,7 @@ export function ChatPage() {
   const bottomRef = useRef<HTMLDivElement>(null)
 
   const sentProvider = effectiveProvider(provider, ollamaOnServer)
-  const isLocal = isOllama(provider)
+  const isLocal = isLocalEngine(provider)
   const { currentData: localModels } = useLocalModelsQuery(sentProvider, { skip: !isLocal })
 
   useEffect(() => {
@@ -105,6 +108,7 @@ export function ChatPage() {
           content: result.answer,
           totalMs: performance.now() - started,
           llmMs: result.latencyMs,
+          source: [result.provider, result.model].filter(Boolean).join(' · ') || undefined,
           toolsUsed: result.toolsUsed,
           toolHits: result.toolHits ?? undefined,
           documentHits: result.documentHits ?? undefined,
@@ -235,7 +239,8 @@ export function ChatPage() {
                       : 'bg-muted text-foreground',
                   )}
                 >
-                  {msg.content || (busy && i === messages.length - 1 ? '…' : '')}
+                  {(msg.role === 'assistant' ? toPlainText(msg.content) : msg.content) ||
+                    (busy && i === messages.length - 1 ? '…' : '')}
                 </div>
 
                 {msg.toolsUsed && msg.toolsUsed.length > 0 && (
@@ -262,7 +267,9 @@ export function ChatPage() {
                   </div>
                 ) : null}
 
-                {msg.totalMs != null && <Timing totalMs={msg.totalMs} parts={{ LLM: msg.llmMs ?? 0 }} />}
+                {msg.totalMs != null && (
+                  <Timing totalMs={msg.totalMs} parts={{ LLM: msg.llmMs ?? 0 }} source={msg.source} />
+                )}
               </div>
             </div>
           ))}

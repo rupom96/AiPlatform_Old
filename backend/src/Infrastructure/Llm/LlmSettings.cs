@@ -30,6 +30,14 @@ public class ProviderConfig
     // default true = hosted provider (key না থাকলে unusable, skip)।
     public bool RequiresApiKey { get; init; } = true;
 
+    // local model server-এর ধরন — UI model-picker তালিকা কোন endpoint থেকে আনবে তা ঠিক করে:
+    // "ollama" (default, /api/tags) | "vllm" (OpenAI-style /v1/models)। chat call দুটোতেই একই।
+    public string Engine { get; init; } = "ollama";
+
+    // optional sampling temperature। null = request-এ পাঠানো হয় না, তখন server-এর নিজস্ব default চলে
+    // (vLLM model-এর generation_config.json থেকে — Gemma-র ক্ষেত্রে 1.0, তাই উত্তর/tool-call এলোমেলো হতে পারে)।
+    public double? Temperature { get; init; }
+
     // optional: "none" | "low" | "medium" | "high"। thinking-capable local model (gemma4, qwen3)
     // default-এ "ভাবে" → ধীর। "none" দিলে thinking বন্ধ। null = request-এ পাঠানোই হয় না (hosted-এ অক্ষত)।
     public string? ReasoningEffort { get; init; }

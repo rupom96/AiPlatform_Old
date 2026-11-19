@@ -13,6 +13,9 @@ export interface AgentResponse {
   latencyMs: number
   toolHits?: ScoredHit[] | null
   documentHits?: ScoredHit[] | null
+  /** শেষ LLM call যে provider/model দিল (fallback হলে অনুরোধ-করা provider থেকে আলাদা হতে পারে) */
+  provider?: string | null
+  model?: string | null
 }
 export interface AgentRequest {
   message: string

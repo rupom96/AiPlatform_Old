@@ -6,8 +6,9 @@ using Microsoft.Extensions.Options;
 
 namespace AiPlatform.Infrastructure.Llm;
 
-// Ollama /api/tags থেকে installed model তালিকা। ollama configure না থাকলে বা down থাকলে
+// Local model server-এর installed/served model তালিকা (UI model-picker)। configure না থাকলে বা down থাকলে
 // খালি তালিকা (dev convenience — throw করে না, UI শুধু কম option দেখায়)।
+//   Engine "ollama" → /api/tags (+ chat-capable ফিল্টার)   Engine "vllm" → OpenAI-style /v1/models
 public class OllamaModelCatalog(
     IHttpClientFactory httpClientFactory,
     IOptions<LlmSettings> options,
@@ -19,6 +20,7 @@ public class OllamaModelCatalog(
     // configure করা নামই কেবল গ্রহণ করি — caller-এর পাঠানো নাম সরাসরি URL হয় না, তাই
     // ইচ্ছেমতো host ডাকানো (SSRF) সম্ভব নয়। অচেনা নাম = খালি তালিকা।
     private const string DefaultProvider = "ollama";
+    private const string VllmEngine = "vllm";
 
     // "llm" HttpClient-এর timeout ৫ মিনিট (ধীর local model generate করার জন্য)। কিন্তু এটা
     // শুধু একটা তালিকা — host অফ থাকলে dropdown ৫ মিনিট ঝুলে থাকা অর্থহীন। তাই আলাদা, ছোট বাজেট।
@@ -28,15 +30,14 @@ public class OllamaModelCatalog(
     {
         var providerName = string.IsNullOrWhiteSpace(provider) ? DefaultProvider : provider;
 
-        // chat BaseUrl (…:11434/v1/chat/completions) থেকে authority নিয়ে /api/tags বানাই
-        if (!_settings.Providers.TryGetValue(providerName, out var ollama) || string.IsNullOrWhiteSpace(ollama.BaseUrl))
+        if (!_settings.Providers.TryGetValue(providerName, out var config) || string.IsNullOrWhiteSpace(config.BaseUrl))
             return [];
 
-        Uri tagsUri;
+        // chat BaseUrl (…:11434/v1/chat/completions) থেকে authority নিয়ে listing endpoint বানাই
+        string authority;
         try
         {
-            var authority = new Uri(ollama.BaseUrl).GetLeftPart(UriPartial.Authority);
-            tagsUri = new Uri($"{authority}/api/tags");
+            authority = new Uri(config.BaseUrl).GetLeftPart(UriPartial.Authority);
         }
         catch (UriFormatException)
         {
@@ -51,40 +52,65 @@ public class OllamaModelCatalog(
         try
         {
             var http = httpClientFactory.CreateClient("llm");
-            using var response = await http.GetAsync(tagsUri, ct);
-            if (!response.IsSuccessStatusCode)
-                return [];
-
-            var raw = await response.Content.ReadAsStringAsync(ct);
-            using var doc = JsonDocument.Parse(raw);
-            if (!doc.RootElement.TryGetProperty("models", out var models) || models.ValueKind != JsonValueKind.Array)
-                return [];
-
-            var names = models.EnumerateArray()
-                .Select(m => m.TryGetProperty("name", out var n) ? n.GetString() : null)
-                .Where(name => !string.IsNullOrWhiteSpace(name))
-                .Select(name => name!)
-                .ToList();
-
-            // chat model-ই রাখি — embedding model (nomic, bge-m3…) chat dropdown-এ আসবে না।
-            // capability /api/show থেকে (নাম-heuristic অনির্ভরযোগ্য — bge-m3-এ "embed" নেই)।
-            var authority = new Uri(ollama.BaseUrl).GetLeftPart(UriPartial.Authority);
-            var checks = names.Select(async name =>
-                (name, isChat: await IsChatModelAsync(http, authority, name, ct)));
-            var results = await Task.WhenAll(checks);
-            return results.Where(r => r.isChat).Select(r => r.name).ToList();
+            return config.Engine.Equals(VllmEngine, StringComparison.OrdinalIgnoreCase)
+                ? await ListVllmModelsAsync(http, authority, ct)
+                : await ListOllamaModelsAsync(http, authority, ct);
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
         {
-            // ollama down / timeout / বাজে response — খালি তালিকা, feature ভাঙে না
-            logger.LogWarning(ex, "Ollama model list fetch failed ({Provider}, {Uri})", providerName, tagsUri);
+            // server down / timeout / বাজে response — খালি তালিকা, feature ভাঙে না
+            logger.LogWarning(ex, "Local model list fetch failed ({Provider}, {Authority})", providerName, authority);
             return [];
         }
     }
 
+    private static async Task<IReadOnlyList<string>> ListOllamaModelsAsync(
+        HttpClient http, string authority, CancellationToken ct)
+    {
+        using var response = await http.GetAsync($"{authority}/api/tags", ct);
+        if (!response.IsSuccessStatusCode)
+            return [];
+
+        var raw = await response.Content.ReadAsStringAsync(ct);
+        using var doc = JsonDocument.Parse(raw);
+        var names = ReadNames(doc.RootElement, "models", "name");
+
+        // chat model-ই রাখি — embedding model (nomic, bge-m3…) chat dropdown-এ আসবে না।
+        // capability /api/show থেকে (নাম-heuristic অনির্ভরযোগ্য — bge-m3-এ "embed" নেই)।
+        var checks = names.Select(async name => (name, isChat: await IsChatModelAsync(http, authority, name, ct)));
+        var results = await Task.WhenAll(checks);
+        return results.Where(r => r.isChat).Select(r => r.name).ToList();
+    }
+
+    // vLLM: `--served-model-name` যা দিয়েছ সেটাই id; সাধারণত একটাই model চলে। embedding ফিল্টার লাগে না
+    // (vLLM প্রতি instance-এ একটা কাজ করে)।
+    private static async Task<IReadOnlyList<string>> ListVllmModelsAsync(
+        HttpClient http, string authority, CancellationToken ct)
+    {
+        using var response = await http.GetAsync($"{authority}/v1/models", ct);
+        if (!response.IsSuccessStatusCode)
+            return [];
+
+        var raw = await response.Content.ReadAsStringAsync(ct);
+        using var doc = JsonDocument.Parse(raw);
+        return ReadNames(doc.RootElement, "data", "id");
+    }
+
+    private static List<string> ReadNames(JsonElement root, string arrayProperty, string nameProperty)
+    {
+        if (!root.TryGetProperty(arrayProperty, out var items) || items.ValueKind != JsonValueKind.Array)
+            return [];
+
+        return items.EnumerateArray()
+            .Select(item => item.TryGetProperty(nameProperty, out var n) ? n.GetString() : null)
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Select(name => name!)
+            .ToList();
+    }
+
     // /api/show → capabilities-এ "completion" থাকলে chat model। fail হলে true (valid chat model
     // লুকানোর চেয়ে মাঝে মাঝে embed model দেখানো কম ক্ষতিকর — বিরল)।
-    private async Task<bool> IsChatModelAsync(HttpClient http, string authority, string model, CancellationToken cancellationToken)
+    private static async Task<bool> IsChatModelAsync(HttpClient http, string authority, string model, CancellationToken cancellationToken)
     {
         try
         {

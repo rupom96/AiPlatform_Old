@@ -31,6 +31,9 @@ public static class DependencyInjection
         // conversation memory — chat + stream handler share করে
         services.AddScoped<IConversationMemory, ConversationMemory>();
 
+        // এক বার্তার অনেক প্রশ্ন আলাদা agent run-এ ভেঙে চালায় (IServiceScopeFactory + AgentSettings, দুটোই singleton)
+        services.AddSingleton<Features.Agent.MultiQuestionRunner>();
+
         return services;
     }
 }

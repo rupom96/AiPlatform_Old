@@ -7,6 +7,7 @@ import {
 } from '@reduxjs/toolkit/query/react'
 import type { RootState } from '@/app/store'
 import { logOut, setCredentials } from '@/features/auth/authSlice'
+import { refreshAccessToken } from '@/features/auth/refreshSession'
 
 const rawBaseQuery = fetchBaseQuery({
   baseUrl: `${import.meta.env.VITE_API_BASE_URL}/api/v1`,
@@ -27,9 +28,9 @@ const baseQueryWithReauth: BaseQueryFn<string | FetchArgs, unknown, FetchBaseQue
   let result = await rawBaseQuery(args, api, extraOptions)
 
   if (result.error?.status === 401) {
-    const refresh = await rawBaseQuery({ url: '/auth/refresh', method: 'POST' }, api, extraOptions)
-    if (refresh.data) {
-      const { accessToken } = refresh.data as { accessToken: string }
+    // একসাথে কয়েকটা request 401 পেলে সবাই একটাই refresh ভাগ করে নেয় (আলাদা আলাদা হলে backend "reuse" ধরে logout করে দিত)
+    const accessToken = await refreshAccessToken()
+    if (accessToken) {
       api.dispatch(setCredentials({ accessToken }))
       result = await rawBaseQuery(args, api, extraOptions) // retry
     } else {

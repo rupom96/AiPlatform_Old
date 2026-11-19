@@ -23,7 +23,8 @@ import { useRagMutation } from './ragApi'
 // qdrant একাই দুটোই দেখে, তাই আপাতত বাকিগুলো লুকানো। ফেরানোর নিয়ম docs/hidden-features.md।
 // const METHODS = ['keyword', 'embedding', 'qdrant', 'hybrid']
 const METHODS = ['qdrant']
-import { PROVIDERS, isOllama, effectiveProvider } from '@/lib/providers'
+import { PROVIDERS, isLocalEngine, effectiveProvider } from '@/lib/providers'
+import { toPlainText } from '@/lib/plainText'
 import { apiErrorMessage } from '@/lib/apiError'
 
 export function RagPage() {
@@ -36,7 +37,7 @@ export function RagPage() {
   const [rag, { data, isLoading }] = useRagMutation()
 
   // ollama select করলে installed model তালিকা (chat page-এর একই endpoint); অন্য provider-এ skip
-  const isLocal = isOllama(provider)
+  const isLocal = isLocalEngine(provider)
   const sentProvider = effectiveProvider(provider, ollamaOnServer)
   // ⚠️ currentData, data নয়: RTK Query নতুন argument-এর fetch চলাকালীন `data`-তে আগের
   // argument-এর ফল ধরে রাখে — তখন এই মেশিনের model তালিকা GPU সার্ভারের নামে দেখাত।
@@ -129,7 +130,7 @@ export function RagPage() {
           <Card>
             <CardHeader><CardTitle className="text-base">উত্তর</CardTitle></CardHeader>
             <CardContent className="text-sm">
-              <div className="whitespace-pre-wrap">{data.answer}</div>
+              <div className="whitespace-pre-wrap">{toPlainText(data.answer)}</div>
               <Timing
                 totalMs={totalMs}
                 parts={{ retrieval: data.retrievalMs, generation: data.generationMs }}

@@ -46,6 +46,8 @@ public class OpenAiCompatibleChatProvider(IHttpClientFactory httpClientFactory, 
         };
         if (!string.IsNullOrWhiteSpace(config.ReasoningEffort))
             body["reasoning_effort"] = config.ReasoningEffort;
+        if (config.Temperature is { } temperature)
+            body["temperature"] = temperature;
         return body;
     }
 

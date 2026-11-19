@@ -154,12 +154,49 @@ public class GetSalesToolTests : IDisposable
     [InlineData("""{"fromDate":"2026-05-31","toDate":"2026-05-01"}""")]       // উল্টো ক্রম
     [InlineData("""{"fromDate":"2026-05-01","toDate":"2026-05-31","groupBy":"colour"}""")]
     [InlineData("""{"fromDate":"2026-05-01","toDate":"2026-05-31","topN":0}""")]
+    [InlineData("""{"month":"July 2026"}""")]                                 // yyyy-MM নয়
+    [InlineData("""{"month":"2026-13"}""")]                                   // ১৩ নম্বর মাস নেই
+    [InlineData("""{"fromDate":"2026-05-01"}""")]                             // toDate ছাড়া
     public async Task InvalidArguments_ReturnErrorInsteadOfThrowing(string argumentsJson)
     {
         var result = JsonDocument.Parse(
             await _tool.ExecuteAsync(JsonDocument.Parse(argumentsJson).RootElement, CancellationToken.None)).RootElement;
 
         Assert.True(result.TryGetProperty("error", out _));
+    }
+
+    // ছোট model "জুলাই ২০২৬" থেকে তারিখ বানাতে গিয়ে আটকাত (2026-11-19) — month=yyyy-MM দিলেই চলে।
+    [Fact]
+    public async Task Month_EqualsTheSameMonthGivenAsExplicitDates()
+    {
+        var byMonth = await Run(new { month = "2026-05" });
+        var byDates = await Run(new { fromDate = "2026-05-01", toDate = "2026-05-31" });
+
+        Assert.Equal("2026-05-01", byMonth.GetProperty("fromDate").GetString());
+        Assert.Equal("2026-05-31", byMonth.GetProperty("toDate").GetString());
+        Assert.Equal(
+            byDates.GetProperty("totalAmountAllRows").GetString(),
+            byMonth.GetProperty("totalAmountAllRows").GetString());
+    }
+
+    [Theory]
+    [InlineData("2026-02", "2026-02-28")]   // অ-লিপ বছর
+    [InlineData("2028-02", "2028-02-29")]   // লিপ বছর
+    [InlineData("2026-12", "2026-12-31")]
+    public async Task Month_EndsOnTheRealLastDay(string month, string expectedLastDay)
+    {
+        var result = await Run(new { month });
+
+        Assert.Equal(expectedLastDay, result.GetProperty("toDate").GetString());
+    }
+
+    [Fact]
+    public async Task ExplicitDates_TakePrecedenceOverMonth()
+    {
+        var result = await Run(new { month = "2026-06", fromDate = "2026-05-01", toDate = "2026-05-31" });
+
+        Assert.Equal("2026-05-01", result.GetProperty("fromDate").GetString());
+        Assert.Equal("305,000 BDT", result.GetProperty("totalAmountAllRows").GetString());
     }
 
     // ছোট model মাঝে মাঝে সংখ্যা string হিসেবে পাঠায়।
