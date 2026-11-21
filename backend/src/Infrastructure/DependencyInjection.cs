@@ -138,6 +138,8 @@ public static class DependencyInjection
             configuration.GetSection(Application.Features.Agent.AgentSettings.SectionName)
                 .Get<Application.Features.Agent.AgentSettings>() ?? new Application.Features.Agent.AgentSettings());
         services.AddSingleton<ITool, Agent.CurrentTimeTool>();
+        // তারিখের হিসাব (নোটিশ পিরিয়ড ইত্যাদি) কোডে — ছোট model-এ ভুল হয়।
+        services.AddSingleton<ITool, Agent.AddToDateTool>();
         services.AddSingleton<ITool, Agent.KnowledgeBaseSearchTool>();
         // Scoped — ErpDbContext scoped, singleton tool ধরে রাখলে captive dependency হতো।
         services.AddScoped<ITool, Agent.GetSalesTool>();
@@ -160,8 +162,19 @@ public static class DependencyInjection
         services.AddSingleton<Rag.EmbeddingRetriever>();
         services.AddSingleton<IRetriever>(sp => sp.GetRequiredService<Rag.KeywordRetriever>());
         services.AddSingleton<IRetriever>(sp => sp.GetRequiredService<Rag.EmbeddingRetriever>());
-        services.AddSingleton<IRetriever, Rag.QdrantRetriever>();
+        // qdrant concrete-ও রাখি — hybrid/rerank retriever এটা সরাসরি inject করে (একই seed-index state ভাগ করতে)।
+        services.AddSingleton<Rag.QdrantRetriever>();
+        services.AddSingleton<IRetriever>(sp => sp.GetRequiredService<Rag.QdrantRetriever>());
         services.AddSingleton<IRetriever, Rag.HybridRetriever>();
+
+        // ঐচ্ছিক (UI dropdown থেকে বাছা): আপলোড করা ডকুমেন্টের উপর hybrid (vector+BM25) ও cross-encoder rerank।
+        // Default পথ (qdrant) অপরিবর্তিত। Reranker:Enabled=false হলে rerank পদ্ধতি ব্যর্থ হয়ে vector-এ ফেরে।
+        services.Configure<Rag.RerankerSettings>(configuration.GetSection(Rag.RerankerSettings.SectionName));
+        services.AddSingleton<IReranker, Rag.TeiReranker>();
+        services.AddSingleton<Rag.QdrantHybridRetriever>();
+        services.AddSingleton<IRetriever>(sp => sp.GetRequiredService<Rag.QdrantHybridRetriever>());
+        services.AddSingleton<IRetriever, Rag.QdrantRerankRetriever>();
+        services.AddSingleton<IRetriever, Rag.QdrantHybridRerankRetriever>();
         services.AddSingleton<IRetrieverResolver, Rag.RetrieverResolver>();
 
         // Audit log — mutating command trail (tenant-scoped)

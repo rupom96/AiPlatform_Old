@@ -18,7 +18,8 @@ public class AgentController(IMediator mediator) : ApiControllerBase
     public async Task<IActionResult> Run(AgentRequest request, CancellationToken cancellationToken)
     {
         var result = await mediator.Send(
-            new RunAgentCommand(request.Message, request.Provider, request.Model), cancellationToken);
+            new RunAgentCommand(request.Message, request.Provider, request.Model, RetrievalMethod: request.RetrievalMethod),
+            cancellationToken);
         return result.IsSuccess ? Ok(result.Value) : ToProblem(result.Error);
     }
 }

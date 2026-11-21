@@ -1,7 +1,9 @@
 namespace AiPlatform.Application.Common.Models;
 
 // retrieval-এ পাওয়া এক টুকরো (citation)। Source = কোথা থেকে (doc নাম / "knowledge-base")।
-public record RetrievedChunk(string Text, double? Score, string? Source = null);
+// VectorScore = vector search-এর cosine similarity (থাকলে)। hybrid/rerank-এ Score বদলে যায় (RRF/relevance), কিন্তু
+// "এই প্রশ্ন ডকুমেন্টের সাথে আদৌ মেলে কিনা" বোঝার gate-এর জন্য মূল cosine আলাদা রাখা হয়।
+public record RetrievedChunk(string Text, double? Score, string? Source = null, double? VectorScore = null);
 
 // RAG উত্তর + কোন chunk থেকে (source/citation)। answer-এ [1],[2] = Sources-এর ক্রম।
 // RetrievalMs = chunk খোঁজা, GenerationMs = LLM উত্তর লেখা। আলাদা রাখা হয়েছে কারণ ধীরগতির

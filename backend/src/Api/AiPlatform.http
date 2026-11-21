@@ -271,6 +271,24 @@ Authorization: Bearer {{login.response.body.$.accessToken}}
 { "message": "রিটার্ন পলিসি কী? knowledge base দেখো।", "provider": "groq" }
 ### Expected: 200, toolsUsed: ["search_knowledge_base"], toolHits (tools collection top-8), documentHits (docs top-8) — KB passage + scores।
 
+### agent — retrievalMethod: ডকুমেন্ট খোঁজার ঐচ্ছিক পদ্ধতি (default | qdrant-hybrid | qdrant-rerank | qdrant-hybrid-rerank)
+POST {{api}}/agent
+Content-Type: application/json
+Authorization: Bearer {{login.response.body.$.accessToken}}
+
+{ "message": "চাকরি ছাড়তে হলে নোটিশ পিরিয়ড কত?", "provider": "ollama", "model": "gemma4:e4b", "retrievalMethod": "qdrant-rerank" }
+### Expected: 200; documentHits[*].detail "qdrant-rerank:<ফাইল>" শুরু হয় — অর্থাৎ rerank সত্যিই চলেছে (cross-encoder score ০–১)।
+### ⚠️ Reranker:Enabled=false বা reranker container বন্ধ হলে request ব্যর্থ হয় না: default (vector)-এ ফেরে, আর detail "qdrant:<ফাইল>"
+### দেখায় (লগে "Retrieval method qdrant-rerank failed" warning)। তাই detail-এর নামটাই সত্য। চালু করতে: docs/troubleshooting.md §৬ঘ।
+
+### agent — অজানা retrievalMethod → 400 (টাইপো নীরবে উপেক্ষা হয় না)
+POST {{api}}/agent
+Content-Type: application/json
+Authorization: Bearer {{login.response.body.$.accessToken}}
+
+{ "message": "অফিসের সময় কখন?", "provider": "ollama", "retrievalMethod": "rerankk" }
+### Expected: 400 ValidationProblem — "RetrievalMethod must be one of: default, qdrant-hybrid, qdrant-rerank, qdrant-hybrid-rerank."
+
 ### agent — এক বার্তায় একাধিক প্রশ্ন (প্রতি লাইন = এক প্রশ্ন; প্রতিটা আলাদা agent run, উত্তর ক্রমে)
 POST {{api}}/agent
 Content-Type: application/json
