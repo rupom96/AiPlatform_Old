@@ -28,6 +28,7 @@
 - Frontend: `cd frontend && npm run dev` → http://localhost:5173
 - EF migration: `dotnet ef ... --project backend/src/Infrastructure --startup-project backend/src/Api`
 - সব একসাথে: `.\scripts\dev.ps1` (Docker Desktop + backing services + Ollama নিজে তোলে, তারপর API ও frontend; `-Vllm <id>` সাথে vLLM, `-NoOllama`, `-NoApps`) / `.\scripts\test.ps1 [-E2E]` (টেস্ট)
+- Reranker (Chat-এর "Retrieval" dropdown-এ Rerank/Hybrid তুলনার জন্য): `dev.ps1` NVIDIA GPU থাকলে **নিজে থেকে** তোলে (`-NoRerank` বাদ দিতে, `-Rerank` জোর করতে); `dev-stop.ps1` সবসময় থামায়। + secret `Reranker:Enabled=true` — **ধাপ ও মাপা ফল: `docs/troubleshooting.md` §৬ঘ**। default পথ অপরিবর্তিত।
 - সব বন্ধ: `.\scripts\dev-stop.ps1` (API/frontend → vLLM → Ollama → `docker compose stop`; ডেটা থাকে; আগে দেখতে `-DryRun`, `-QuitDocker`/`-KeepOllama`/`-KeepInfra`)
 - vLLM আলাদা চালাতে/বন্ধ করতে: `.\scripts\start-vllm.ps1` (মেনু; model তালিকা `scripts/vllm-models.json`)
 - সার্ভার bootstrap (Windows Server 2022 — Docker Desktop চলে না, তাই WSL2+Docker CE): `scripts/server-setup.ps1`
