@@ -7,7 +7,7 @@ using Microsoft.Extensions.Options;
 namespace AiPlatform.Infrastructure.Llm;
 
 // Local embedding — Ollama native /api/embed (nomic-embed-text, 768-dim)। key লাগে না।
-// taskType Ollama-তে নেই (query/document একই embed) — interface রক্ষা করতে param নেয়, ব্যবহার করে না।
+// taskType Ollama API-তে নেই; query-তে শুধু ঐচ্ছিক QueryTask (config) বসানো হয়, document-এ কিছু না।
 public class OllamaEmbeddingProvider(IHttpClientFactory httpClientFactory, IOptions<LlmSettings> options)
     : IEmbeddingProvider
 {
@@ -16,7 +16,11 @@ public class OllamaEmbeddingProvider(IHttpClientFactory httpClientFactory, IOpti
     public async Task<float[]> EmbedAsync(string text, EmbeddingTaskType taskType, CancellationToken cancellationToken)
     {
         var baseUrl = (_config.BaseUrl ?? "http://localhost:11434").TrimEnd('/');
-        var body = new { model = _config.Model, input = text };
+        // শুধু query-তে নির্দেশ; document যেমন আছে তেমনই embed হয় (asymmetric retrieval model-এর নিয়ম)।
+        var input = taskType == EmbeddingTaskType.RetrievalQuery && !string.IsNullOrWhiteSpace(_config.QueryTask)
+            ? $"Instruct: {_config.QueryTask}\nQuery: {text}"
+            : text;
+        var body = new { model = _config.Model, input };
 
         using var request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/api/embed")
         {
