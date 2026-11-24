@@ -21,6 +21,11 @@ public class IngestionBackgroundService(
     ILogger<IngestionBackgroundService> logger)
     : BackgroundService
 {
+    // ২০০ অক্ষরে "অফিস সময়: 10:00 AM - 7:00 PM"-এর মতো একটা তথ্য দুই chunk-এ ভেঙে যেত (এক chunk-এ "10:00 AM -",
+    // আরেকটায় "PM"), ফলে খোঁজা ঠিক হলেও উত্তর অর্ধেক পাওয়া যেত। ৫০০ অক্ষরে সাধারণ এক section-এর ছোট তথ্য একসাথে থাকে।
+    private const int ChunkMaxChars = 500;
+    private const int ChunkOverlapWords = 15;
+
     private readonly int _pollDelayMs = options.Value.PollDelayMs;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -75,7 +80,7 @@ public class IngestionBackgroundService(
         // প্রতিটা chunk-এর মাথায় "[ফাইলের নাম > heading]" — নইলে heading-এর নিচের লাইনগুলো
         // প্রসঙ্গহীন হয়ে যায় আর খোঁজায় হেরে যায় (TextChunker-এ কারণটা লেখা আছে)।
         var chunks = TextChunker.ChunkWithContext(
-            document.Content, Path.GetFileNameWithoutExtension(document.FileName));
+            document.Content, Path.GetFileNameWithoutExtension(document.FileName), ChunkMaxChars, ChunkOverlapWords);
         document.TotalChunks = chunks.Count;
         document.ProcessedChunks = 0;
         await repository.SaveChangesAsync(cancellationToken);

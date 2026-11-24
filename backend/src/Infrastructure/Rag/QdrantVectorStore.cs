@@ -97,8 +97,51 @@ public class QdrantVectorStore(
             var text = payload.GetProperty("text").GetString() ?? string.Empty;
             var source = payload.TryGetProperty("source", out var s) ? s.GetString() : null;
             var score = point.GetProperty("score").GetDouble();
-            results.Add(new RetrievedChunk(text, score, source));
+            results.Add(new RetrievedChunk(text, score, source, VectorScore: score));
         }
+        return results;
+    }
+
+    private const int ScrollPageSize = 256;
+
+    public async Task<IReadOnlyList<RetrievedChunk>> ScrollAsync(int maxChunks, CancellationToken cancellationToken)
+    {
+        var results = new List<RetrievedChunk>();
+        JsonElement? offset = null;
+
+        while (results.Count < maxChunks)
+        {
+            var limit = Math.Min(ScrollPageSize, maxChunks - results.Count);
+            // offset প্রথম পাতায় থাকে না; পরের পাতায় আগের উত্তরের next_page_offset (id) হুবহু ফেরত দিতে হয়।
+            object body = offset is null
+                ? new { limit, with_payload = true, with_vector = false }
+                : new { limit, with_payload = true, with_vector = false, offset };
+
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"{CollectionUrl}/points/scroll")
+            {
+                Content = JsonContent.Create(body)
+            };
+            using var response = await Http().SendAsync(request, cancellationToken);
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+                return results; // collection নেই = কিছু ingest হয়নি, ভুল নয়
+            var raw = await response.Content.ReadAsStringAsync(cancellationToken);
+            response.EnsureSuccessStatusCode();
+
+            using var doc = JsonDocument.Parse(raw);
+            var result = doc.RootElement.GetProperty("result");
+            foreach (var point in result.GetProperty("points").EnumerateArray())
+            {
+                var payload = point.GetProperty("payload");
+                var text = payload.GetProperty("text").GetString() ?? string.Empty;
+                var source = payload.TryGetProperty("source", out var s) ? s.GetString() : null;
+                results.Add(new RetrievedChunk(text, null, source));
+            }
+
+            if (!result.TryGetProperty("next_page_offset", out var next) || next.ValueKind == JsonValueKind.Null)
+                break;
+            offset = next.Clone(); // using-এর বাইরে ব্যবহার হবে, তাই clone
+        }
+
         return results;
     }
 }

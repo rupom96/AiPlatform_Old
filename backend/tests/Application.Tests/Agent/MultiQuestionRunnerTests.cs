@@ -114,9 +114,27 @@ public class MultiQuestionRunnerTests
         Assert.Equal("ollama", result.Value.Provider);
     }
 
+    // retrieval পদ্ধতি: সবাই একই হলে সেটা; কেউ ফল্লব্যাক করলে (মেলে না) null — "সব rerank চলেছে" মিথ্যা বলা যাবে না;
+    // যে প্রশ্নে ডকুমেন্ট খোঁজাই হয়নি (null) সে হিসাবে ধরা হয় না।
+    [Fact]
+    public async Task RetrievalMethodUsed_IsCommonValue_OrNullWhenQuestionsDiffer()
+    {
+        var same = await Runner(new FakeAgentHandler(methodFor: _ => "qdrant-rerank")).RunAsync(
+            Split("এক?", "দুই?"), new RunAgentCommand("x", "ollama"), CancellationToken.None);
+        var mixed = await Runner(new FakeAgentHandler(methodFor: q => q == "এক?" ? "qdrant-rerank" : "qdrant")).RunAsync(
+            Split("এক?", "দুই?"), new RunAgentCommand("x", "ollama"), CancellationToken.None);
+        var oneErpOnly = await Runner(new FakeAgentHandler(methodFor: q => q == "এক?" ? "qdrant-rerank" : null)).RunAsync(
+            Split("এক?", "দুই?"), new RunAgentCommand("x", "ollama"), CancellationToken.None);
+
+        Assert.Equal("qdrant-rerank", same.Value.RetrievalMethodUsed);
+        Assert.Null(mixed.Value.RetrievalMethodUsed);
+        Assert.Equal("qdrant-rerank", oneErpOnly.Value.RetrievalMethodUsed);
+    }
+
     // ---------------------------------------------------------------- fake
 
-    private sealed class FakeAgentHandler(Func<string, int>? delayMsFor = null, string? failFor = null)
+    private sealed class FakeAgentHandler(
+        Func<string, int>? delayMsFor = null, string? failFor = null, Func<string, string?>? methodFor = null)
         : IRequestHandler<RunAgentCommand, Result<AgentResponse>>
     {
         private int _inFlight;
@@ -143,7 +161,8 @@ public class MultiQuestionRunnerTests
 
                 return new AgentResponse(
                     $"উত্তর: {request.Message}", ["get_sales"], 5,
-                    [new ScoredHit("get_sales", request.Message.Length)], null, request.Provider, request.Model);
+                    [new ScoredHit("get_sales", request.Message.Length)], null, request.Provider, request.Model,
+                    methodFor?.Invoke(request.Message));
             }
             finally
             {

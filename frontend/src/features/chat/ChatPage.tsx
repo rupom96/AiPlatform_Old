@@ -22,6 +22,12 @@ import { Label } from '@/components/ui/label'
 import { Timing } from '@/components/Timing'
 import { useLocalModelsQuery } from './modelsApi'
 import { useAgentMutation, type ScoredHit } from './agentApi'
+import {
+  RETRIEVAL_METHODS,
+  retrievalFallbackNotice,
+  retrievalMethodForRequest,
+  type RetrievalMethod,
+} from '@/lib/retrievalMethods'
 import { useLazyGetConversationQuery, useListConversationsQuery } from './conversationsApi'
 
 interface Message {
@@ -34,6 +40,8 @@ interface Message {
   toolsUsed?: string[]
   toolHits?: ScoredHit[]
   documentHits?: ScoredHit[]
+  /** user-এর বাছা retrieval পদ্ধতি এবং আসলে যেটা চলল — মিললে নীরব, না মিললে সতর্কতা */
+  retrievalNotice?: string
 }
 
 /** এক জায়গায় প্রশ্ন — Agent টুল (ERP + uploaded docs) একসাথে চালিয়ে উত্তর দেয়। */
@@ -45,6 +53,7 @@ export function ChatPage() {
     TOOL_PROVIDERS.includes(defaultProvider) ? defaultProvider : TOOL_PROVIDERS[0],
   )
   const [model, setModel] = useState<string | undefined>(undefined)
+  const [retrieval, setRetrieval] = useState<RetrievalMethod>('default')
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [ollamaOnServer, setOllamaOnServer] = useState(false)
   const [agent, { isLoading: busy }] = useAgentMutation()
@@ -100,6 +109,7 @@ export function ChatPage() {
         message: text,
         provider: sentProvider,
         model: isLocal ? model : undefined,
+        retrievalMethod: retrievalMethodForRequest(retrieval),
       }).unwrap()
       setMessages((m) => {
         const copy = [...m]
@@ -112,6 +122,12 @@ export function ChatPage() {
           toolsUsed: result.toolsUsed,
           toolHits: result.toolHits ?? undefined,
           documentHits: result.documentHits ?? undefined,
+          retrievalNotice:
+            retrievalFallbackNotice(
+              retrieval,
+              (result.documentHits?.length ?? 0) > 0,
+              result.retrievalMethodUsed,
+            ) ?? undefined,
         }
         return copy
       })
@@ -214,6 +230,20 @@ export function ChatPage() {
                 </SelectContent>
               </Select>
             )}
+
+            {/* ডকুমেন্ট খোঁজার পদ্ধতি — default অপরিবর্তিত; hybrid/rerank-এর ফারাক তুলনা করতে */}
+            <Select value={retrieval} onValueChange={(v) => setRetrieval(v as RetrievalMethod)}>
+              <SelectTrigger className="w-52" aria-label="Retrieval method">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {RETRIEVAL_METHODS.map((m) => (
+                  <SelectItem key={m.value} value={m.value}>
+                    {m.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </div>
 
@@ -254,6 +284,15 @@ export function ChatPage() {
                       </span>
                     ))}
                   </div>
+                )}
+
+                {msg.retrievalNotice && (
+                  <p
+                    role="alert"
+                    className="mt-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-2.5 py-1.5 text-xs text-amber-700 dark:text-amber-300"
+                  >
+                    ⚠️ {msg.retrievalNotice}
+                  </p>
                 )}
 
                 {(msg.toolHits?.length || msg.documentHits?.length) ? (

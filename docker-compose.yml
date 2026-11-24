@@ -41,7 +41,9 @@ services:
     volumes:
       - sqlserver-data:/var/opt/mssql
     healthcheck:
-      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -C -Q 'SELECT 1' || exit 1"]
+      # 127.0.0.1 ইচ্ছাকৃত, 'localhost' নয়: কনটেইনারে 'localhost' আগে IPv6 (::1) চেষ্টা করে আটকে ৫s সীমা পেরোয় →
+      # SQL চললেও "unhealthy" থাকে আর `up --wait`/dev.ps1 চিরকাল ঝুলে থাকে (docs/troubleshooting.md)।
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S 127.0.0.1 -U sa -P \"$$MSSQL_SA_PASSWORD\" -C -l 4 -Q 'SELECT 1' || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -81,6 +83,43 @@ services:
       - "18888:18888"   # UI
       - "4317:18889"    # OTLP gRPC — host-এ চলা API এখানে পাঠায় (OTel-এর standard port)
 
+  # Reranker (ঐচ্ছিক) — cross-encoder bge-reranker-v2-m3 (বহুভাষী, বাংলা সহ), HuggingFace TEI /rerank।
+  # ডকুমেন্ট খোঁজার "Rerank"/"Hybrid + Rerank" পদ্ধতির জন্য; ছাড়া Chat আগের মতোই চলে (default vector)।
+  # profile "rerank" — default `up`-এ ওঠে না:  docker compose --profile rerank up -d reranker
+  # dev.ps1 NVIDIA GPU পেলে এটা নিজেই তোলে (-NoRerank বাদ দিতে); dev-stop.ps1 সবসময় থামায়।
+  # + user-secret: dotnet user-secrets set "Reranker:Enabled" "true" --project backend/src/Api
+  # GPU: ~১.২GB VRAM, ~৬৫ms/অনুরোধ। image GPU-র generation অনুযায়ী (RTX 50xx = 120-1.9; RTX 40xx = 89-1.9; 30xx = 86-1.9)।
+  # GPU ছাড়া: RERANKER_IMAGE=ghcr.io/huggingface/text-embeddings-inference:cpu-1.9 RERANKER_DTYPE=float32 (~১.৫s, ৮GB+ RAM)।
+  # প্রথমবার model (~২.২GB) নামে — volume-এ থেকে যায়।
+  reranker:
+    image: ${RERANKER_IMAGE:-ghcr.io/huggingface/text-embeddings-inference:120-1.9}
+    container_name: aiplatform-reranker
+    command:
+      - --model-id=BAAI/bge-reranker-v2-m3
+      - --dtype=${RERANKER_DTYPE:-float16}
+      # একটা অনুরোধের সব candidate-এর মোট token এর মধ্যে না ধরলে TEI 429 "Model is overloaded" দেয় (২০টা বাংলা chunk
+      # ≈ ৬–৮ হাজার token)। GPU-তে ১৬৩৮৪ নিরাপদ; CPU-তে এত বড় হলে warm-up-এ RAM উড়ে OOM — তখন RERANKER_MAX_BATCH_TOKENS=2048
+      # দাও আর reranker-এর Candidates কমাও (≈৮)।
+      - --max-batch-tokens=${RERANKER_MAX_BATCH_TOKENS:-16384}
+      - --auto-truncate              # model-এর সীমার চেয়ে লম্বা chunk কেটে নেয় (error নয়)
+      # ⚠️ /rerank-এ প্রতিটা candidate এক-একটা "concurrent request" গোনা হয়: সীমা (default ৫১২ নয়, আগে ১৬ রেখেছিলাম)
+      # Reranker:Candidates-এর চেয়ে কম হলে TEI 429 "Model is overloaded" দেয়। তাই Candidates-এর কয়েক গুণ রাখা।
+      - --max-client-batch-size=64
+      - --max-concurrent-requests=128
+    ports:
+      - "8082:80"
+    volumes:
+      - reranker-cache:/data
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    profiles: ["rerank"]
+    restart: unless-stopped
+
   # stateless API — দুই replica (state Redis/SQL-এ, তাই যেকোনো replica যেকোনো request নিতে পারে)
   # profile "full" — default `up` এ ওঠে না (local dev-এ API VS/dotnet থেকে চালাও)।
   # full stack: docker compose --profile full up -d --build
@@ -111,3 +150,5 @@ volumes:
   sqlserver-data:
   redis-data:
   qdrant-data:
+  reranker-cache:
+    name: aiplatform-reranker-cache   # নির্দিষ্ট নাম — project-নামে বদলে model আবার নামে না

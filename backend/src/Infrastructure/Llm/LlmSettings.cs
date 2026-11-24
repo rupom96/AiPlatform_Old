@@ -51,4 +51,9 @@ public class EmbeddingConfig
     public string Model { get; init; } = "gemini-embedding-001";
     public string? ApiKey { get; init; }
     public string? BaseUrl { get; init; }   // ollama: http://localhost:11434 (native /api/embed)
+
+    // ollama: খোঁজার প্রশ্নের (document-এর নয়) কাজের বর্ণনা — Qwen3-embedding ছাঁচে "Instruct: {task}\nQuery: {প্রশ্ন}"
+    // হয়ে যায়। এটা ছাড়া ২-৩ শব্দের ছোট query ("অফিসের সময়") ভুল chunk টানে। খালি = কিছু বসে না
+    // (nomic-embed-text ইত্যাদির আগের আচরণ)। উদাহরণ: "Given a user question, retrieve passages from company documents that answer it"
+    public string? QueryTask { get; init; }
 }

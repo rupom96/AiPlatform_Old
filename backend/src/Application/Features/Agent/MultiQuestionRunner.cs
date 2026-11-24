@@ -67,7 +67,16 @@ public class MultiQuestionRunner(IServiceScopeFactory scopeFactory, AgentSetting
             MergeHits(succeeded.Select(r => r.ToolHits)),
             MergeHits(succeeded.Select(r => r.DocumentHits)),
             succeeded[0].Provider,
-            succeeded[0].Model);
+            succeeded[0].Model,
+            CommonMethod(succeeded));
+    }
+
+    // সব প্রশ্ন একই পদ্ধতিতে খুঁজলে সেটা; কিছু প্রশ্ন ফল্লব্যাক করলে (পদ্ধতি মেলে না) null — মিথ্যা "সব rerank চলেছে" বলি না।
+    // যে প্রশ্নে ডকুমেন্ট খোঁজাই হয়নি (ERP) সেটা হিসাবে ধরি না।
+    private static string? CommonMethod(IEnumerable<AgentResponse> responses)
+    {
+        var methods = responses.Select(r => r.RetrievalMethodUsed).Where(m => m is not null).Distinct().ToList();
+        return methods.Count == 1 ? methods[0] : null;
     }
 
     // একই label-এর সর্বোচ্চ score রেখে, বেশি score আগে। কিছুই না থাকলে null (UI-তে ফাঁকা তালিকা দেখায় না)।

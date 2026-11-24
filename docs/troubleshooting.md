@@ -14,6 +14,7 @@
 3. [Claude Browser pane-এ animation/chart "ভাঙা" — rAF fire হয় না](#৩-claude-browser-pane-এ-animationchart-ভাঙা--raf-fire-হয়-না)
 4. [KB doc বদলানোর পরেও AI পুরোনো কথা বলে — Qdrant-এ বাসি chunk](#৪-kb-doc-বদলানোর-পরেও-ai-পুরোনো-কথা-বলে--qdrant-এ-বাসি-chunk)
 5. [Qdrant port 6333/6334 — আবার সেই "forbidden by its access permissions"](#৫-qdrant-port-63336334--আবার-সেই-forbidden-by-its-access-permissions)
+6. [Document আপলোডে লাল ✖ / Failed — "gemini-embedding provider error 403"](#৬-document-আপলোডে-লাল---failed--gemini-embedding-provider-error-403)
 
 ---
 
@@ -187,3 +188,121 @@ administered exclusion বানানো।
 ---
 
 <!-- নতুন entry উপরের ফরম্যাটে নিচে যোগ করো; সূচিতেও লাইন যোগ করো। -->
+
+---
+
+## ৬. Document আপলোডে লাল ✖ / Failed — "gemini-embedding provider error 403"
+
+**লক্ষণ:** আপলোড নিজে সফল (POST ঠিক), কিন্তু ফাইলের পাশে লাল ✖ / status `Failed`, chunk ০। Aspire
+(`http://localhost:18888` → Structured logs) খুললে:
+```
+LlmProviderException: gemini-embedding provider error 403:
+  "Permission denied on the service." — PERMISSION_DENIED / ACCESS_DENIED (generativelanguage.googleapis.com)
+```
+সাথে একই সময়ের `Tool catalog sync failed` ও `Tool score search failed` warning (tool-ও একই embedding ব্যবহার করে)।
+
+**আসল কারণ:** এই মেশিনে **Gemini API key-ই নেই** — `dotnet user-secrets list --project backend/src/Api` বলে
+"No secrets configured" (নতুন মেশিনে secrets কপি হয়নি, `docs/second-device-setup.md` §৩)। embedding-এর
+default provider `gemini`; key ছাড়া `x-goog-api-key` খালি যায়, Google 403 দেয়। ⚠️ chat আলাদা (ollama)
+বলে সেটা ঠিক চলে, তাই সমস্যাটা শুধু আপলোড/tool-এ ধরা পড়ে।
+
+**ফিক্স — key ছাড়া, local Ollama embedding** (machine-local user-secret, git-এ যায় না):
+```powershell
+dotnet user-secrets set "Llm:Embedding:Provider" "ollama"           --project backend/src/Api
+dotnet user-secrets set "Llm:Embedding:Model"    "nomic-embed-text" --project backend/src/Api
+dotnet user-secrets set "Llm:Embedding:BaseUrl"  "http://localhost:11434" --project backend/src/Api
+```
+এরপর **API restart**। (`ollama pull nomic-embed-text` আগে থেকে থাকতে হবে।) ফেরানো: তিনটা `dotnet user-secrets remove "Llm:Embedding:…"`।
+
+**বিকল্প:** আসল key থাকলে `dotnet user-secrets set "Llm:Embedding:ApiKey" "<key>"` (বিস্তারিত `docs/user-secrets-guide.md`) —
+তখন উপরের তিনটা সরিয়ে দাও।
+
+**কেন কাজ করে:** Qdrant collection-এর নামে embedding provider/model যুক্ত (`aiplatform_rag_ollama…`), তাই
+gemini-র পুরোনো vector-এর সাথে মেশে না। ⚠️ উল্টো দিক: provider বদলালে আগের আপলোড করা ডকুমেন্ট
+**নতুন collection-এ নেই** — UI-তে "Completed" দেখালেও খুঁজে পাবে না; **আবার আপলোড** করো।
+
+**এককালীন?** এই মেশিনের জন্য হ্যাঁ। ব্যর্থ আপলোডের কারণ এখন chat sidebar-এর তালিকায় দেখা যায়।
+
+### ৬ক. secrets বসিয়েছি, তবু API Gemini-ই ডাকছে (403 যায় না)
+
+**কারণ:** secrets ঠিক ফাইলে যায়নি। Claude-এর tool sandbox-এ চলে — সেখানে লেখা `secrets.json` **আসল Windows profile-এ
+নেই**। যাচাই: নিজের terminal-এ `Test-Path "$env:APPDATA\Microsoft\UserSecrets\<UserSecretsId>\secrets.json"` (id =
+`AiPlatform.Api.csproj`-এর `<UserSecretsId>`)। **ফিক্স:** `dotnet user-secrets set …` **নিজের terminal-এ** চালাও
+(Claude-কে দিয়ে `run_in_terminal`-এ চালালেও চলে), তারপর API restart।
+
+### ৬গ. reasoning বন্ধ (`ReasoningEffort: none`) রেখে ডকুমেন্টের উত্তর — retrieval-first
+
+কঠিন/মিশ্র প্রশ্নে (যেমন "আজ resign করলে শেষ দিন কবে, বেতন কবে?") ছোট model thinking ছাড়া tool-ই ডাকত না, সরাসরি
+"তথ্য নেই" বলত; `low` দিলে ঠিক হয় কিন্তু ৪–৫ গুণ ধীর। সমাধান (industry-standard): **ডকুমেন্ট খোঁজা LLM-এর আগে
+নিজেই চলে** (`Agent:PreRetrieveDocuments`, default true), passage যায় user message-এ প্রশ্নের ঠিক আগে। ফলে `none`-এই
+২০টা প্রশ্ন ~১০ সেকেন্ডে।
+- **ERP প্রশ্নে passage ঢুকলে** model tool না ডেকে "নথিতে নেই" বলত → `Agent:PreRetrieveMinScore` (সেরা passage-এর
+  similarity এর নিচে হলে passage ঢোকে না)। score model-ভেদে আলাদা; qwen3-embedding:0.6b-তে `0.45`
+  (ERP ≤০.৪২, ডকুমেন্ট ≥০.৫৮): `dotnet user-secrets set "Agent:PreRetrieveMinScore" "0.45" --project backend/src/Api`।
+  embedding model বদলালে আবার মেপে বসাও; default `0` = বন্ধ।
+- **জানা সীমা:** মিশ্র প্রশ্নের ("বিক্রি কত আর অফিসের সময় কখন?") ডকুমেন্ট-অংশ ক্ষীণ; আর যেখানে সঠিক chunk
+  top-৩-এর বাইরে ("চাকরি ছাড়তে নোটিশ পিরিয়ড" — ভুল "Grounding Rules" chunk উপরে) সেখানে সীমার নিচে পড়ে। স্থায়ী ওষুধ
+  **reranker** — §৬ঘ (মেপে ২১/২১; hybrid একা সাহায্য করেনি)।
+- **বাগ যা ঠিক হয়েছে:** `AgentRetrievalTrace` `AsyncLocal`-এ সরাসরি hits রাখত — async tool-এর ভেতরে সেট করা মান
+  caller-এ ফিরত না, তাই UI-তে "Docs collection" বক্স কখনো আসেনি। এখন বদলানো-যায় holder।
+- একই ফাইল দুবার আপলোড করলে হুবহু একই chunk top-N দখল করে; retrieval এখন লেখা-ভিত্তিক dedupe করে (তবু দুবার আপলোড এড়াও)।
+
+### ৬ঘ. Reranker / Hybrid (Chat-এর "Retrieval" dropdown) — চালু করা ও ফল
+
+Chat-এর উপরে dropdown: **Default (vector)** (আগের আচরণ, অপরিবর্তিত) | Hybrid | Rerank | Hybrid + Rerank। তুলনা করে দেখার জন্য।
+- **Rerank** = vector থেকে ২০টা candidate → cross-encoder (`BAAI/bge-reranker-v2-m3`, বহুভাষী) প্রশ্ন+chunk একসাথে পড়ে নতুন ক্রম।
+- **Hybrid** = vector + BM25 (শব্দ-মিল, আপলোড করা chunk-এর উপর) + RRF।
+
+**চালু করার ধাপ (এক বার):**
+```powershell
+.\scripts\dev.ps1                                      # NVIDIA GPU থাকলে reranker নিজে ওঠে (-NoRerank বাদ দিতে, -Rerank জোর করতে)
+# শুধু reranker আলাদা: docker compose --profile rerank up -d reranker   (প্রথমবার ~২.২GB model নামে, ~৫ মিনিট; dev.ps1 ৯০s-এর বেশি আটকে থাকে না)
+dotnet user-secrets set "Reranker:Enabled" "true" --project backend/src/Api
+```
+তারপর API restart। NVIDIA GPU লাগে (`docker-compose.yml`-এর `reranker` ব্লকে GPU generation-অনুযায়ী image ও CPU বিকল্প লেখা)।
+**যাচাই:** Chat-এ Rerank বেছে প্রশ্ন করো; নিচের "Docs collection"-এর hit-এর লেবেল `qdrant-rerank:…` হলে সত্যিই চলেছে।
+`qdrant:…` দেখালে reranker চলেনি (বন্ধ/ব্যর্থ) — নীরবে default-এ ফিরেছে; API log-এ "Retrieval method qdrant-rerank failed" দেখো।
+
+**মেপে পাওয়া ফল** (২১ প্রশ্ন × ২ রান, `gemma4:e4b`, reasoning `none`, qwen3-embedding):
+
+| পদ্ধতি | সঠিক | প্রশ্ন-প্রতি সময় |
+|---|---|---|
+| Default | ২০/২১ | ~০.৪২s |
+| Hybrid | ১৯/২১ | ~০.৪০s (বাংলায় stemming নেই, তাই keyword সাহায্য করে না) |
+| **Rerank** | **২১/২১** (দুই রানেই) | ~০.৪৮s (reranker নিজে ~৬৫ms, GPU) |
+| Hybrid + Rerank | ২০–২১/২১ | ~০.৪৮s |
+
+**Gate (ERP প্রশ্নে passage না ঢোকানো):** Rerank চললে `Agent:PreRetrieveMinRerankScore` = `0.005` (reranker-এর relevance score:
+ERP প্রশ্ন ≤০.০০৩, ডকুমেন্ট প্রশ্ন ≥০.০০৬৭; "সাপ্তাহিক ছুটি" ০.৪৬)। vector cosine-এর gate এ প্রশ্ন আটকাত (০.৪১–০.৪৪ < ০.৪৫)।
+`dotnet user-secrets set "Agent:PreRetrieveMinRerankScore" "0.005" --project backend/src/Api`। ০ = বন্ধ (তখন vector gate)।
+ফল (২১ প্রশ্ন): Default ১৯, **Rerank ২১, Hybrid+Rerank ২১**।
+
+**কোন reranker বাছা হলো (research + পরীক্ষা):** Ollama-তে native rerank API নেই। `Qwen3-Reranker-0.6B` (ollama community build) এই মেশিনে
+অকার্যকর — "The capital of France is" লিখলেও `,,,,,` দেয়; TEI-তেও সমর্থিত নয় (classifier নয়, CausalLM)। `jina-reranker-v3`
+non-commercial লাইসেন্স। **`bge-reranker-v2-m3`** TEI-তে চলে: আলাদা মূল্যায়নে vector ১৮/১৯ → rerank ১৯/১৯ ("নোটিশ পিরিয়ড" ৪র্থ → ১ম)।
+CPU-তে ~১.৪–২.৭s ও ৮GB+ RAM, GPU-তে ~৬৫ms ও ~১.২GB VRAM।
+
+**TEI-র দুটো ফাঁদ (docker-compose.yml-এ ঠিক করা):** (১) `/rerank`-এ প্রতিটা candidate এক-একটা "concurrent request" গোনা হয় —
+`--max-concurrent-requests` < `Reranker:Candidates` হলে `429 Model is overloaded`। (২) `--max-batch-tokens` খুব ছোট হলেও একই ত্রুটি;
+আবার CPU-তে বড় হলে warm-up-এ `OOM (exit 137)`।
+
+### ৬ঙ. "আজ resign করলে শেষ কর্মদিবস কবে?" — তারিখ ভুল / "তথ্য নেই"
+
+নিয়ম (নোটিশ দুই মাস) ডকুমেন্টে আছে, কিন্তু তারিখ বের করতে "আজ + ২ মাস" হিসাব লাগে। **মডেলকে নিজে হিসাব করতে বললে ভুল তারিখ দেয়**
+(`2026-12-20`, `2026-01-20`, `2024-02-20` — সঠিক `2027-01-21`)। তাই হিসাব কোডে: tool **`add_to_date`** (মাস/দিন যোগ, নির্ভুল);
+মডেল শুধু ডকুমেন্ট থেকে নিয়ম নিয়ে tool ডাকে। ২৪টার ২৪টা সঠিক (আগে ১২-র ১০টা)।
+- **"আজ" টাইমজোন:** আগে prompt-এ UTC ছিল → বাংলাদেশে রাত ১২টা–ভোর ৬টায় agent গতকালের তারিখ ধরত (সব তারিখ এক দিন ভুল)।
+  এখন `Agent:TimeZone` (default `Asia/Dhaka`; না চিনলে UTC)। ⚠️ `current_time`, warranty, stock এখনো UTC ধরে।
+- **Tool নাম টেক্সটে লেখা:** ছোট মডেল মাঝে মাঝে tool না ডেকে `add_to_date(months=2)` লিখে দিত (বা `get_sales(...)`)। handler এখন তা ধরে
+  একবার সংশোধন করে আবার চেষ্টা করায় (`ToolCallText`); আবার লিখলে অনন্ত চক্র নয়।
+
+### ৬খ. বাংলা প্রশ্নে ডকুমেন্টের উত্তর আসে না ("তথ্য নেই") — embedding model
+
+`nomic-embed-text` ইংরেজি-কেন্দ্রিক: ডকুমেন্ট ইংরেজি আর প্রশ্ন বাংলা হলে ভুল chunk আসে। বহুভাষী model দাও
+(`ollama pull qwen3-embedding:0.6b` — ১০২৪-মাত্রা, নতুন collection নিজে তৈরি হয়):
+```powershell
+dotnet user-secrets set "Llm:Embedding:Model"     "qwen3-embedding:0.6b" --project backend/src/Api
+dotnet user-secrets set "Llm:Embedding:QueryTask" "Given a user question, retrieve passages from company documents that answer it" --project backend/src/Api
+```
+`QueryTask` খোঁজার প্রশ্নের আগে `Instruct: …\nQuery: …` বসায় (ছোট প্রশ্ন "অফিসের সময়" ছাড়া ভুল chunk টানে)।
+এরপর API restart ও **ডকুমেন্ট আবার আপলোড**। ডকুমেন্ট chunk এখন ৫০০ অক্ষর (আগে ২০০ — একটা তথ্য দুই chunk-এ ভাঙত)।
